@@ -296,28 +296,49 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
         return allEpisodes.distinctBy { it.url }.sortedByDescending { it.episode_number }
     }
 
-    private fun fetchEpisodesPage(animeId: String, animeSlug: String, page: Int): String {
-        return try {
-            val request = Request.Builder()
-                .url("$baseUrl/id")
-                .post(
-                    FormBody.Builder()
-                        .add("acc", "episodes")
-                        .add("i", animeId)
-                        .add("u", animeSlug)
-                        .add("p", page.toString())
-                        .build()
-                )
-                .addHeader("X-Requested-With", "XMLHttpRequest")
-                .addHeader("Referer", baseUrl)
-                .build()
-            val response = customClient.newCall(request).execute()
+private fun fetchEpisodesPage(animeId: String, animeSlug: String, page: Int): String {
+    return try {
+        val request = Request.Builder()
+            .url("$baseUrl/id")
+            .post(
+                FormBody.Builder()
+                    .add("acc", "episodes")
+                    .add("i", animeId)
+                    .add("u", animeSlug)
+                    .add("p", page.toString())
+                    .build()
+            )
+            .addHeader("X-Requested-With", "XMLHttpRequest")
+            .addHeader("Referer", baseUrl)
+            .build()
+        customClient.newCall(request).execute().use { response ->
             response.body?.string() ?: ""
-        } catch (e: Exception) {
-            ""
         }
+    } catch (e: Exception) {
+        ""
     }
+}
 
+private fun fetchServerList(encryptId: String): String {
+    return try {
+        val request = Request.Builder()
+            .url("$baseUrl/id")
+            .post(
+                FormBody.Builder()
+                    .add("acc", "opt")
+                    .add("i", encryptId)
+                    .build()
+            )
+            .addHeader("X-Requested-With", "XMLHttpRequest")
+            .addHeader("Referer", baseUrl)
+            .build()
+        customClient.newCall(request).execute().use { response ->
+            response.body?.string() ?: ""
+        }
+    } catch (e: Exception) {
+        ""
+    }
+}
     // ============================== Videos ===============================
     private fun serverVideoResolverBlocking(url: String): List<Video> {
         // Determine host to detect server switch
