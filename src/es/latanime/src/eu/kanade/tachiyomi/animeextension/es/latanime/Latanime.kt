@@ -50,7 +50,7 @@ class Latanime :
 
     override fun popularAnimeSelector(): String = "div.row > div"
 
-    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/emision?p=$page")
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/animes?p=$page")
 
     override fun popularAnimeFromElement(element: Element): SAnime {
         val anime = SAnime.create()
