@@ -508,8 +508,8 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
 
         ListPreference(screen.context).apply {
             key = "animeid_preferred_quality"
-            title = "Calidad preferida"
-            entries = arrayOf("Automático", "480p", "720p", "1080p")
+            title = "Preferred quality"
+            entries = arrayOf("Automatic", "480p", "720p", "1080p")
             entryValues = arrayOf("automatic", "480", "720", "1080")
             setDefaultValue("automatic")
             summary = "%s"
