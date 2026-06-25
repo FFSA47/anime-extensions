@@ -67,7 +67,7 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
     }
 
     // Extractors using the custom client for consistency
-    private val voeExtractor by lazy { VoeExtractor(customClient, headers) }
+    private val voeExtractor by lazy { VoeExtractor(customClient, headers) }  // ← CORREGIDO: se pasa headers
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(customClient) }
     private val uqloadExtractor by lazy { UqloadExtractor(customClient) }
     private val streamWishExtractor by lazy { StreamWishExtractor(customClient, headers) }
@@ -369,7 +369,11 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
 
         return try {
             when (matchedServer) {
-                "voe" -> voeExtractor.videosFromUrl(url, prefix = "Voe")
+                "voe" -> {
+                    // Para Voe, prefix no funciona, así que lo añadimos manualmente
+                    val videos = voeExtractor.videosFromUrl(url)
+                    videos.map { Video(it.url, "Voe - ${it.quality}", it.url, it.headers) }
+                }
                 "streamwish" -> streamWishExtractor.videosFromUrl(url, prefix = "StreamWish")
                 "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, headers, prefix = "Mp4upload")
                 "uqload" -> uqloadExtractor.videosFromUrl(url, prefix = "Uqload")
@@ -542,7 +546,7 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
 
         ListPreference(screen.context).apply {
             key = "animeid_preferred_quality"
-            title = "Preferred quality"
+            title = "preferred quality"
             entries = arrayOf("Automatic", "480p", "720p", "1080p")
             entryValues = arrayOf("automatic", "480", "720", "1080")
             setDefaultValue("automatic")
