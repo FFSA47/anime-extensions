@@ -75,6 +75,19 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
     private val luluExtractor by lazy { LuluExtractor(customClient) }
     private val universalExtractor by lazy { UniversalExtractor(customClient) }
 
+    /**
+     * Map of server names to their known domains/patterns.
+     * Used for detection in serverVideoResolver and detectServer.
+     */
+    private val serverDomainMap = mapOf(
+        "voe" to listOf("voe", "tubelessceliolymph", "simpulumlamerop", "urochsunloath", "nathanfromsubject", "yip.", "metagnathtuggers", "donaldlineelse"),
+        "streamwish" to listOf("wishembed", "streamwish", "strwish", "wish", "kswplayer", "swhoi", "multimovies", "uqloads", "neko-stream", "swdyu", "iplayerhls", "streamgg"),
+        "mp4upload" to listOf("mp4upload"),
+        "uqload" to listOf("uqload"),
+        "doodstream" to listOf("doodstream", "dood.", "ds2play", "doods.", "ds2video", "dooood", "d000d", "d0000d"),
+        "lulu" to listOf("luluvdo", "lulu", "lulustream")
+    )
+
     // Track last host to evict connection pool when switching servers
     private var lastServerHost: String? = null
 
@@ -294,7 +307,7 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
             allEpisodes.addAll(episodesOnPage)
             currentPage++
             try {
-                Thread.sleep(500)
+                Thread.sleep(100)
             } catch (_: InterruptedException) {
                 // ignore
             }
@@ -343,26 +356,25 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
         }
     }
 
+    /**
+     * Resolves a video page URL to a list of Video objects.
+     * Uses the serverDomainMap to detect which extractor to use.
+     */
     private suspend fun serverVideoResolver(url: String): List<Video> {
         val embedUrl = url.lowercase()
+        // Find matching server from the map
+        val matchedServer = serverDomainMap.entries.find { (_, domains) ->
+            domains.any { embedUrl.contains(it) }
+        }?.key
+
         return try {
-            when {
-                embedUrl.contains("voe") -> voeExtractor.videosFromUrl(url, prefix = "Voe")
-                embedUrl.contains("mp4upload") -> mp4uploadExtractor.videosFromUrl(url, headers, prefix = "Mp4upload")
-                embedUrl.contains("uqload") -> uqloadExtractor.videosFromUrl(url, prefix = "Uqload")
-                embedUrl.contains("streamwish") -> streamWishExtractor.videosFromUrl(url, prefix = "StreamWish")
-                // Doodstream detection
-                embedUrl.contains("doodstream") || embedUrl.contains("dood.") ||
-                embedUrl.contains("ds2play") || embedUrl.contains("doods.") ||
-                embedUrl.contains("ds2video") || embedUrl.contains("dooood") ||
-                embedUrl.contains("d000d") || embedUrl.contains("d0000d") -> {
-                    doodExtractor.videosFromUrl(url, prefix = "Dood")
-                }
-                // Lulustream detection
-                embedUrl.contains("luluvdo") || embedUrl.contains("lulu") ||
-                embedUrl.contains("lulustream") -> {
-                    luluExtractor.videosFromUrl(url, prefix = "Lulu")
-                }
+            when (matchedServer) {
+                "voe" -> voeExtractor.videosFromUrl(url, prefix = "Voe")
+                "streamwish" -> streamWishExtractor.videosFromUrl(url, prefix = "StreamWish")
+                "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, headers, prefix = "Mp4upload")
+                "uqload" -> uqloadExtractor.videosFromUrl(url, prefix = "Uqload")
+                "doodstream" -> doodExtractor.videosFromUrl(url, prefix = "Dood")
+                "lulu" -> luluExtractor.videosFromUrl(url, prefix = "Lulu")
                 else -> universalExtractor.videosFromUrl(url, headers)
             }
         } catch (e: Exception) {
@@ -455,27 +467,29 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
         }
     }
 
+    /**
+     * Orders videos by user preferences (server and quality).
+     * Uses serverDomainMap to detect the server of each video.
+     */
     private fun orderVideosByPreferences(videos: List<Video>): List<Video> {
         val preferredServer = preferences.getString("animeid_preferred_server", "Voe")?.lowercase()
         val preferredQuality = preferences.getString("animeid_preferred_quality", "any")?.lowercase()
 
         fun detectServer(video: Video): String {
             val urlHost = runCatching { video.url.toHttpUrlOrNull()?.host }.getOrNull() ?: ""
-            return when {
-                urlHost.contains("voe", ignoreCase = true) -> "voe"
-                urlHost.contains("mp4upload", ignoreCase = true) -> "mp4upload"
-                urlHost.contains("uqload", ignoreCase = true) -> "uqload"
-                urlHost.contains("streamwish", ignoreCase = true) -> "streamwish"
-                urlHost.contains("dood", ignoreCase = true) -> "doodstream"
-                urlHost.contains("lulu", ignoreCase = true) -> "lulu"
-                video.quality.contains("voe", ignoreCase = true) -> "voe"
-                video.quality.contains("mp4upload", ignoreCase = true) -> "mp4upload"
-                video.quality.contains("uqload", ignoreCase = true) -> "uqload"
-                video.quality.contains("streamwish", ignoreCase = true) -> "streamwish"
-                video.quality.contains("dood", ignoreCase = true) -> "doodstream"
-                video.quality.contains("lulu", ignoreCase = true) -> "lulu"
-                else -> "other"
+            // Check if the host matches any domain in serverDomainMap
+            for ((server, domains) in serverDomainMap) {
+                if (domains.any { urlHost.contains(it, ignoreCase = true) }) {
+                    return server
+                }
             }
+            // Fallback: check quality string
+            for ((server, domains) in serverDomainMap) {
+                if (domains.any { video.quality.contains(it, ignoreCase = true) }) {
+                    return server
+                }
+            }
+            return "other"
         }
 
         fun qualityScore(video: Video): Int {
@@ -519,7 +533,7 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         ListPreference(screen.context).apply {
             key = "animeid_preferred_server"
-            title = "Servidor preferido"
+            title = "Preferred server"
             entries = arrayOf("Voe", "Mp4upload", "Uqload", "StreamWish", "Doodstream", "Lulustream")
             entryValues = arrayOf("Voe", "Mp4upload", "Uqload", "StreamWish", "Doodstream", "Lulustream")
             setDefaultValue("Voe")
@@ -528,8 +542,8 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
 
         ListPreference(screen.context).apply {
             key = "animeid_preferred_quality"
-            title = "Calidad preferida"
-            entries = arrayOf("Automático", "480p", "720p", "1080p")
+            title = "Preferred quality"
+            entries = arrayOf("Automatic", "480p", "720p", "1080p")
             entryValues = arrayOf("automatic", "480", "720", "1080")
             setDefaultValue("automatic")
             summary = "%s"
