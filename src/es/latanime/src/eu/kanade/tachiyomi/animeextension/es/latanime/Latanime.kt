@@ -379,7 +379,6 @@ class Latanime :
             summary = "%s"
         }.also(screen::addPreference)
 
-        
         val videoQualityPref = ListPreference(screen.context).apply {
             key = "preferred_quality"
             title = "Preferred quality"
