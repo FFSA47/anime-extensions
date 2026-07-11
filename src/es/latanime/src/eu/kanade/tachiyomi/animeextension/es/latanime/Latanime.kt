@@ -46,6 +46,13 @@ class Latanime :
 
     private val preferences by getPreferencesLazy()
 
+    private val PREF_SERVER_KEY = "preferred_server"
+    private val SERVER_LIST = arrayOf(
+        "Voe", "Okru", "Filemoon", "Mp4upload", "Uqload",
+        "Doodstream", "Yourupload", "Streamwish", "Vidguard", "Mixdrop",
+    )
+    private val PREF_SERVER_DEFAULT = "Voe"
+
     // ============================== Popular ===============================
 
     override fun popularAnimeSelector(): String = "div.row > div"
@@ -362,6 +369,17 @@ class Latanime :
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        // Preferencia de servidor (nueva, sin alterar la lógica existente)
+        ListPreference(screen.context).apply {
+            key = PREF_SERVER_KEY
+            title = "Preferred server"
+            entries = SERVER_LIST
+            entryValues = SERVER_LIST
+            setDefaultValue(PREF_SERVER_DEFAULT)
+            summary = "%s"
+        }.also(screen::addPreference)
+
+        
         val videoQualityPref = ListPreference(screen.context).apply {
             key = "preferred_quality"
             title = "Preferred quality"
