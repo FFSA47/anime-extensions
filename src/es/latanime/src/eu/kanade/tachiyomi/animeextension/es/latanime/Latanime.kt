@@ -46,12 +46,12 @@ class Latanime :
 
     private val preferences by getPreferencesLazy()
 
-    private val PREF_SERVER_KEY = "preferred_server"
-    private val SERVER_LIST = arrayOf(
+    private val prefServerKey = "preferred_server"
+    private val serverList = arrayOf(
         "Voe", "Okru", "Filemoon", "Mp4upload", "Uqload",
         "Doodstream", "Yourupload", "Streamwish", "Vidguard", "Mixdrop",
     )
-    private val PREF_SERVER_DEFAULT = "Voe"
+    private val prefServerDefault = "Voe"
 
     // ============================== Popular ===============================
 
@@ -371,11 +371,11 @@ class Latanime :
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         // Preferencia de servidor (nueva, sin alterar la lógica existente)
         ListPreference(screen.context).apply {
-            key = PREF_SERVER_KEY
+            key = prefServerKey
             title = "Preferred server"
-            entries = SERVER_LIST
-            entryValues = SERVER_LIST
-            setDefaultValue(PREF_SERVER_DEFAULT)
+            entries = serverList
+            entryValues = serverList
+            setDefaultValue(prefServerDefault)
             summary = "%s"
         }.also(screen::addPreference)
 
