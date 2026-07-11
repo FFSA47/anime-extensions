@@ -37,17 +37,16 @@ class Latanime :
     ConfigurableAnimeSource {
 
     override val name = "Latanime"
-
     override val baseUrl = "https://latanime.org"
-
     override val lang = "es"
-
     override val supportsLatest = false
 
     private val preferences by getPreferencesLazy()
 
-    
+    // Constantes en camelCase
     private val prefServerKey = "preferred_server"
+    private val prefServerDefault = "voe"
+
     private val serverEntries = arrayOf(
         "Voe", "Okru", "Filemoon", "Mp4upload", "Uqload",
         "Doodstream", "Yourupload", "Streamwish", "Vidguard", "Mixdrop", "Universal"
@@ -56,21 +55,17 @@ class Latanime :
         "voe", "okru", "filemoon", "mp4upload", "uqload",
         "doodstream", "yourupload", "streamwish", "vidguard", "mixdrop", "universal"
     )
-    private val prefServerDefault = "voe"
 
     // ============================== Popular ===============================
 
     override fun popularAnimeSelector(): String = "div.row > div"
-
     override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/emision?p=$page")
 
     override fun popularAnimeFromElement(element: Element): SAnime {
         val anime = SAnime.create()
-
         anime.setUrlWithoutDomain(element.selectFirst("a")!!.attr("href").toHttpUrl().encodedPath)
         anime.title = element.selectFirst("div.seriedetails > h3")!!.text()
         anime.thumbnail_url = element.selectFirst("img")!!.attr("src")
-
         return anime
     }
 
@@ -79,34 +74,24 @@ class Latanime :
     // =============================== Latest ===============================
 
     override fun latestUpdatesNextPageSelector(): String = throw UnsupportedOperationException()
-
     override fun latestUpdatesFromElement(element: Element): SAnime = throw UnsupportedOperationException()
-
     override fun latestUpdatesRequest(page: Int): Request = throw UnsupportedOperationException()
-
     override fun latestUpdatesSelector(): String = throw UnsupportedOperationException()
 
     // =============================== Search ===============================
 
     override fun searchAnimeSelector(): String = "div.row > div:has(a)"
-
     override fun searchAnimeFromElement(element: Element): SAnime = popularAnimeFromElement(element)
-
     override fun searchAnimeNextPageSelector(): String = popularAnimeNextPageSelector()
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val filterList = if (filters.isEmpty()) getFilterList() else filters
-
         val yearFilter = filterList.find { it is YearFilter } as YearFilter
         val genreFilter = filterList.find { it is GenreFilter } as GenreFilter
         val letterFilter = filterList.find { it is LetterFilter } as LetterFilter
-
         return when {
             query.isNotBlank() -> GET("$baseUrl/buscar?q=$query&p=$page")
-
-            else -> {
-                GET("$baseUrl/animes?fecha=${yearFilter.toUriPart()}&genero=${genreFilter.toUriPart()}&letra=${letterFilter.toUriPart()}")
-            }
+            else -> GET("$baseUrl/animes?fecha=${yearFilter.toUriPart()}&genero=${genreFilter.toUriPart()}&letra=${letterFilter.toUriPart()}")
         }
     }
 
@@ -124,50 +109,21 @@ class Latanime :
             "Año",
             arrayOf(
                 Pair("Seleccionar", "false"),
-                Pair("2025", "2025"),
-                Pair("2024", "2024"),
-                Pair("2023", "2023"),
-                Pair("2022", "2022"),
-                Pair("2021", "2021"),
-                Pair("2020", "2020"),
-                Pair("2019", "2019"),
-                Pair("2018", "2018"),
-                Pair("2017", "2017"),
-                Pair("2016", "2016"),
-                Pair("2015", "2015"),
-                Pair("2014", "2014"),
-                Pair("2013", "2013"),
-                Pair("2012", "2012"),
-                Pair("2011", "2011"),
-                Pair("2010", "2010"),
-                Pair("2009", "2009"),
-                Pair("2008", "2008"),
-                Pair("2007", "2007"),
-                Pair("2006", "2006"),
-                Pair("2005", "2005"),
-                Pair("2004", "2004"),
-                Pair("2003", "2003"),
-                Pair("2002", "2002"),
-                Pair("2001", "2001"),
-                Pair("2000", "2000"),
-                Pair("1999", "1999"),
-                Pair("1998", "1998"),
-                Pair("1997", "1997"),
-                Pair("1996", "1996"),
-                Pair("1995", "1995"),
-                Pair("1994", "1994"),
-                Pair("1993", "1993"),
-                Pair("1992", "1992"),
-                Pair("1991", "1991"),
-                Pair("1990", "1990"),
-                Pair("1989", "1989"),
-                Pair("1988", "1988"),
-                Pair("1987", "1987"),
-                Pair("1986", "1986"),
-                Pair("1985", "1985"),
-                Pair("1984", "1984"),
-                Pair("1983", "1983"),
-                Pair("1982", "1982"),
+                Pair("2025", "2025"), Pair("2024", "2024"), Pair("2023", "2023"),
+                Pair("2022", "2022"), Pair("2021", "2021"), Pair("2020", "2020"),
+                Pair("2019", "2019"), Pair("2018", "2018"), Pair("2017", "2017"),
+                Pair("2016", "2016"), Pair("2015", "2015"), Pair("2014", "2014"),
+                Pair("2013", "2013"), Pair("2012", "2012"), Pair("2011", "2011"),
+                Pair("2010", "2010"), Pair("2009", "2009"), Pair("2008", "2008"),
+                Pair("2007", "2007"), Pair("2006", "2006"), Pair("2005", "2005"),
+                Pair("2004", "2004"), Pair("2003", "2003"), Pair("2002", "2002"),
+                Pair("2001", "2001"), Pair("2000", "2000"), Pair("1999", "1999"),
+                Pair("1998", "1998"), Pair("1997", "1997"), Pair("1996", "1996"),
+                Pair("1995", "1995"), Pair("1994", "1994"), Pair("1993", "1993"),
+                Pair("1992", "1992"), Pair("1991", "1991"), Pair("1990", "1990"),
+                Pair("1989", "1989"), Pair("1988", "1988"), Pair("1987", "1987"),
+                Pair("1986", "1986"), Pair("1985", "1985"), Pair("1984", "1984"),
+                Pair("1983", "1983"), Pair("1982", "1982"),
             ),
         )
 
@@ -176,52 +132,29 @@ class Latanime :
             "Genéros",
             arrayOf(
                 Pair("Seleccionar", "false"),
-                Pair("Acción", "accion"),
-                Pair("Aventura", "aventura"),
-                Pair("Carreras", "carreras"),
-                Pair("Ciencia Ficción", "ciencia-ficcion"),
-                Pair("Comedia", "comedia"),
-                Pair("Cyberpunk", "cyberpunk"),
-                Pair("Deportes", "deportes"),
-                Pair("Drama", "drama"),
-                Pair("Ecchi", "ecchi"),
-                Pair("Escolares", "escolares"),
-                Pair("Fantasía", "fantasia"),
-                Pair("Gore", "gore"),
-                Pair("Harem", "harem"),
-                Pair("Horror", "horror"),
-                Pair("Josei", "josei"),
-                Pair("Lucha", "lucha"),
-                Pair("Magia", "magia"),
-                Pair("Mecha", "mecha"),
-                Pair("Militar", "militar"),
-                Pair("Misterio", "misterio"),
-                Pair("Música", "musica"),
-                Pair("Parodias", "parodias"),
-                Pair("Psicológico", "psicologico"),
-                Pair("Recuerdos de la vida", "recuerdos-de-la-vida"),
-                Pair("Seinen", "seinen"),
-                Pair("Shojo", "shojo"),
-                Pair("Shonen", "shonen"),
-                Pair("Sobrenatural", "sobrenatural"),
-                Pair("Vampiros", "vampiros"),
-                Pair("Yaoi", "yaoi"),
-                Pair("Yuri", "yuri"),
-                Pair("Latino", "latino"),
-                Pair("Espacial", "espacial"),
-                Pair("Histórico", "historico"),
-                Pair("Samurai", "samurai"),
-                Pair("Artes Marciales", "artes-marciales"),
-                Pair("Demonios", "demonios"),
-                Pair("Romance", "romance"),
-                Pair("Dementia", "dementia"),
-                Pair("Policía", "policia"),
-                Pair("Castellano", "castellano"),
-                Pair("Historia paralela", "historia-paralela"),
-                Pair("Aenime", "aenime"),
-                Pair("Donghua", "donghua"),
-                Pair("Blu-ray", "blu-ray"),
-                Pair("Monogatari", "monogatari"),
+                Pair("Acción", "accion"), Pair("Aventura", "aventura"),
+                Pair("Carreras", "carreras"), Pair("Ciencia Ficción", "ciencia-ficcion"),
+                Pair("Comedia", "comedia"), Pair("Cyberpunk", "cyberpunk"),
+                Pair("Deportes", "deportes"), Pair("Drama", "drama"),
+                Pair("Ecchi", "ecchi"), Pair("Escolares", "escolares"),
+                Pair("Fantasía", "fantasia"), Pair("Gore", "gore"),
+                Pair("Harem", "harem"), Pair("Horror", "horror"),
+                Pair("Josei", "josei"), Pair("Lucha", "lucha"),
+                Pair("Magia", "magia"), Pair("Mecha", "mecha"),
+                Pair("Militar", "militar"), Pair("Misterio", "misterio"),
+                Pair("Música", "musica"), Pair("Parodias", "parodias"),
+                Pair("Psicológico", "psicologico"), Pair("Recuerdos de la vida", "recuerdos-de-la-vida"),
+                Pair("Seinen", "seinen"), Pair("Shojo", "shojo"),
+                Pair("Shonen", "shonen"), Pair("Sobrenatural", "sobrenatural"),
+                Pair("Vampiros", "vampiros"), Pair("Yaoi", "yaoi"),
+                Pair("Yuri", "yuri"), Pair("Latino", "latino"),
+                Pair("Espacial", "espacial"), Pair("Histórico", "historico"),
+                Pair("Samurai", "samurai"), Pair("Artes Marciales", "artes-marciales"),
+                Pair("Demonios", "demonios"), Pair("Romance", "romance"),
+                Pair("Dementia", "dementia"), Pair("Policía", "policia"),
+                Pair("Castellano", "castellano"), Pair("Historia paralela", "historia-paralela"),
+                Pair("Aenime", "aenime"), Pair("Donghua", "donghua"),
+                Pair("Blu-ray", "blu-ray"), Pair("Monogatari", "monogatari"),
             ),
         )
 
@@ -231,36 +164,20 @@ class Latanime :
             arrayOf(
                 Pair("Seleccionar", "false"),
                 Pair("0-9", "09"),
-                Pair("A", "A"),
-                Pair("B", "B"),
-                Pair("C", "C"),
-                Pair("D", "D"),
-                Pair("E", "E"),
-                Pair("F", "F"),
-                Pair("G", "G"),
-                Pair("H", "H"),
-                Pair("I", "I"),
-                Pair("J", "J"),
-                Pair("K", "K"),
-                Pair("L", "L"),
-                Pair("M", "M"),
-                Pair("N", "N"),
-                Pair("O", "O"),
-                Pair("P", "P"),
-                Pair("Q", "Q"),
-                Pair("R", "R"),
-                Pair("S", "S"),
-                Pair("T", "T"),
-                Pair("U", "U"),
-                Pair("V", "V"),
-                Pair("W", "W"),
-                Pair("X", "X"),
-                Pair("Y", "Y"),
-                Pair("Z", "Z"),
+                Pair("A", "A"), Pair("B", "B"), Pair("C", "C"),
+                Pair("D", "D"), Pair("E", "E"), Pair("F", "F"),
+                Pair("G", "G"), Pair("H", "H"), Pair("I", "I"),
+                Pair("J", "J"), Pair("K", "K"), Pair("L", "L"),
+                Pair("M", "M"), Pair("N", "N"), Pair("O", "O"),
+                Pair("P", "P"), Pair("Q", "Q"), Pair("R", "R"),
+                Pair("S", "S"), Pair("T", "T"), Pair("U", "U"),
+                Pair("V", "V"), Pair("W", "W"), Pair("X", "X"),
+                Pair("Y", "Y"), Pair("Z", "Z"),
             ),
         )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
+        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
@@ -322,7 +239,6 @@ class Latanime :
             }
             .partition { it.first != null }
             .let { (matched, unmatched) ->
-                // Extraer videos de servidores conocidos
                 val extractors = matched.parallelCatchingFlatMapBlocking { (matched, serverTitle, url) ->
                     val prefix = "$serverTitle - "
                     when (matched) {
@@ -339,7 +255,6 @@ class Latanime :
                         else -> emptyList()
                     }
                 }
-                // Extraer videos de servidores no identificados (Universal)
                 val universal = unmatched.catchingFlatMapBlocking { (_, serverTitle, url) ->
                     val prefix = "$serverTitle - "
                     universalExtractor.videosFromUrl(url, headers, prefix = "$prefix ")
@@ -362,29 +277,24 @@ class Latanime :
     )
 
     override fun videoListSelector() = "li#play-video > a.play-video"
-
     override fun videoFromElement(element: Element) = throw UnsupportedOperationException()
-
     override fun videoUrlParse(document: Document) = throw UnsupportedOperationException()
 
     // ============================= Utilities ==============================
 
     override fun List<Video>.sort(): List<Video> {
-        val preferredServer = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT) ?: PREF_SERVER_DEFAULT
+        val preferredServer = preferences.getString(prefServerKey, prefServerDefault) ?: prefServerDefault
         val quality = preferences.getString("preferred_quality", "1080")!!
 
         return this.sortedWith(
-            compareBy<Video> { 
-                
-            }.thenBy { 
-                
-                !it.quality.contains(quality)
-            }
+            compareBy(
+                { !it.quality.contains(preferredServer, ignoreCase = true) },
+                { !it.quality.contains(quality) }
+            )
         )
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        
         ListPreference(screen.context).apply {
             key = prefServerKey
             title = "Preferred server"
@@ -394,7 +304,6 @@ class Latanime :
             summary = "%s"
         }.also(screen::addPreference)
 
-        
         val videoQualityPref = ListPreference(screen.context).apply {
             key = "preferred_quality"
             title = "Preferred quality"
