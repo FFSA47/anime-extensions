@@ -43,7 +43,6 @@ class Latanime :
 
     private val preferences by getPreferencesLazy()
 
-    
     private val prefServerKey = "preferred_server"
     private val prefServerDefault = "voe"
 
@@ -176,8 +175,7 @@ class Latanime :
             ),
         )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
@@ -289,8 +287,8 @@ class Latanime :
         return this.sortedWith(
             compareBy(
                 { !it.quality.contains(preferredServer, ignoreCase = true) },
-                { !it.quality.contains(quality) }
-            )
+                { !it.quality.contains(quality) },
+            ),
         )
     }
 
