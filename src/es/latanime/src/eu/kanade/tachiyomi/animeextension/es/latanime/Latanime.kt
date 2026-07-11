@@ -46,12 +46,17 @@ class Latanime :
 
     private val preferences by getPreferencesLazy()
 
+    
     private val prefServerKey = "preferred_server"
-    private val serverList = arrayOf(
+    private val serverEntries = arrayOf(
         "Voe", "Okru", "Filemoon", "Mp4upload", "Uqload",
-        "Doodstream", "Yourupload", "Streamwish", "Vidguard", "Mixdrop",
+        "Doodstream", "Yourupload", "Streamwish", "Vidguard", "Mixdrop", "Universal"
     )
-    private val prefServerDefault = "Voe"
+    private val serverValues = arrayOf(
+        "voe", "okru", "filemoon", "mp4upload", "uqload",
+        "doodstream", "yourupload", "streamwish", "vidguard", "mixdrop", "universal"
+    )
+    private val prefServerDefault = "voe"
 
     // ============================== Popular ===============================
 
@@ -310,11 +315,14 @@ class Latanime :
                 val url = runCatching {
                     String(Base64.decode(videoElement.attr("data-player"), Base64.DEFAULT))
                 }.getOrNull() ?: return@mapNotNull null
-                val matched = conventions.firstOrNull { (_, names) -> names.any { it.lowercase() in url.lowercase() || it.lowercase() in serverTitle.lowercase() } }?.first
+                val matched = conventions.firstOrNull { (_, names) ->
+                    names.any { it.lowercase() in url.lowercase() || it.lowercase() in serverTitle.lowercase() }
+                }?.first
                 Triple(matched, serverTitle, url)
             }
             .partition { it.first != null }
             .let { (matched, unmatched) ->
+                // Extraer videos de servidores conocidos
                 val extractors = matched.parallelCatchingFlatMapBlocking { (matched, serverTitle, url) ->
                     val prefix = "$serverTitle - "
                     when (matched) {
@@ -331,6 +339,7 @@ class Latanime :
                         else -> emptyList()
                     }
                 }
+                // Extraer videos de servidores no identificados (Universal)
                 val universal = unmatched.catchingFlatMapBlocking { (_, serverTitle, url) ->
                     val prefix = "$serverTitle - "
                     universalExtractor.videosFromUrl(url, headers, prefix = "$prefix ")
@@ -361,24 +370,31 @@ class Latanime :
     // ============================= Utilities ==============================
 
     override fun List<Video>.sort(): List<Video> {
+        val preferredServer = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT) ?: PREF_SERVER_DEFAULT
         val quality = preferences.getString("preferred_quality", "1080")!!
 
         return this.sortedWith(
-            compareBy { it.quality.contains(quality) },
-        ).reversed()
+            compareBy<Video> { 
+                
+            }.thenBy { 
+                
+                !it.quality.contains(quality)
+            }
+        )
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        // Preferencia de servidor (nueva, sin alterar la lógica existente)
+        
         ListPreference(screen.context).apply {
             key = prefServerKey
             title = "Preferred server"
-            entries = serverList
-            entryValues = serverList
+            entries = serverEntries
+            entryValues = serverValues
             setDefaultValue(prefServerDefault)
             summary = "%s"
         }.also(screen::addPreference)
 
+        
         val videoQualityPref = ListPreference(screen.context).apply {
             key = "preferred_quality"
             title = "Preferred quality"
