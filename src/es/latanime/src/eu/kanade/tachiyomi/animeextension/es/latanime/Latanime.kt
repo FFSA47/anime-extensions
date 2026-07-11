@@ -43,17 +43,17 @@ class Latanime :
 
     private val preferences by getPreferencesLazy()
 
-    // Constantes en camelCase
+    
     private val prefServerKey = "preferred_server"
     private val prefServerDefault = "voe"
 
     private val serverEntries = arrayOf(
         "Voe", "Okru", "Filemoon", "Mp4upload", "Uqload",
-        "Doodstream", "Yourupload", "Streamwish", "Vidguard", "Mixdrop", "Universal"
+        "Doodstream", "Yourupload", "Streamwish", "Vidguard", "Mixdrop",
     )
     private val serverValues = arrayOf(
         "voe", "okru", "filemoon", "mp4upload", "uqload",
-        "doodstream", "yourupload", "streamwish", "vidguard", "mixdrop", "universal"
+        "doodstream", "yourupload", "streamwish", "vidguard", "mixdrop",
     )
 
     // ============================== Popular ===============================
