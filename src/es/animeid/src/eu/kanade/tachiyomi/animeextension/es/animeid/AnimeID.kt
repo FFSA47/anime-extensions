@@ -2,8 +2,6 @@ package eu.kanade.tachiyomi.animeextension.es.animeid
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
-import aniyomi.lib.doodextractor.DoodExtractor
-import aniyomi.lib.luluextractor.LuluExtractor
 import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import aniyomi.lib.universalextractor.UniversalExtractor
@@ -73,8 +71,6 @@ class AnimeID :
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(customClient) }
     private val uqloadExtractor by lazy { UqloadExtractor(customClient) }
     private val streamWishExtractor by lazy { StreamWishExtractor(customClient, headers) }
-    private val doodExtractor by lazy { DoodExtractor(customClient) }
-    private val luluExtractor by lazy { LuluExtractor(customClient) }
     private val universalExtractor by lazy { UniversalExtractor(customClient) }
 
     // Track last host to evict connection pool when switching servers
@@ -354,18 +350,6 @@ class AnimeID :
                 embedUrl.contains("mp4upload") -> mp4uploadExtractor.videosFromUrl(url, headers, prefix = "Mp4upload")
                 embedUrl.contains("uqload") -> uqloadExtractor.videosFromUrl(url, prefix = "Uqload")
                 embedUrl.contains("streamwish") -> streamWishExtractor.videosFromUrl(url, prefix = "StreamWish")
-                // Doodstream detection
-                embedUrl.contains("doodstream") || embedUrl.contains("dood.") ||
-                    embedUrl.contains("ds2play") || embedUrl.contains("doods.") ||
-                    embedUrl.contains("ds2video") || embedUrl.contains("dooood") ||
-                    embedUrl.contains("d000d") || embedUrl.contains("d0000d") -> {
-                    doodExtractor.videosFromUrl(url, prefix = "Dood")
-                }
-                // Lulustream detection
-                embedUrl.contains("luluvdo") || embedUrl.contains("lulu") ||
-                    embedUrl.contains("lulustream") -> {
-                    luluExtractor.videosFromUrl(url, prefix = "Lulu")
-                }
                 else -> universalExtractor.videosFromUrl(url, headers)
             }
         } catch (e: Exception) {
@@ -465,14 +449,10 @@ class AnimeID :
                 urlHost.contains("mp4upload", ignoreCase = true) -> "mp4upload"
                 urlHost.contains("uqload", ignoreCase = true) -> "uqload"
                 urlHost.contains("streamwish", ignoreCase = true) -> "streamwish"
-                urlHost.contains("dood", ignoreCase = true) -> "doodstream"
-                urlHost.contains("lulu", ignoreCase = true) -> "lulu"
                 video.quality.contains("voe", ignoreCase = true) -> "voe"
                 video.quality.contains("mp4upload", ignoreCase = true) -> "mp4upload"
                 video.quality.contains("uqload", ignoreCase = true) -> "uqload"
                 video.quality.contains("streamwish", ignoreCase = true) -> "streamwish"
-                video.quality.contains("dood", ignoreCase = true) -> "doodstream"
-                video.quality.contains("lulu", ignoreCase = true) -> "lulu"
                 else -> "other"
             }
         }
@@ -498,7 +478,7 @@ class AnimeID :
             }
         }
 
-        val serversOrder = listOf("voe", "mp4upload", "uqload", "streamwish", "doodstream", "lulu", "other")
+        val serversOrder = listOf("voe", "mp4upload", "uqload", "streamwish", "other")
         for (srv in serversOrder) {
             if (srv == preferredServer) continue
             grouped[srv]?.let { list ->
@@ -519,8 +499,8 @@ class AnimeID :
         ListPreference(screen.context).apply {
             key = "animeid_preferred_server"
             title = "Preferred server"
-            entries = arrayOf("Voe", "Mp4upload", "Uqload", "StreamWish", "Doodstream", "Lulustream")
-            entryValues = arrayOf("Voe", "Mp4upload", "Uqload", "StreamWish", "Doodstream", "Lulustream")
+            entries = arrayOf("Voe", "Mp4upload", "Uqload", "StreamWish")
+            entryValues = arrayOf("Voe", "Mp4upload", "Uqload", "StreamWish")
             setDefaultValue("Voe")
             summary = "%s"
         }.also(screen::addPreference)
