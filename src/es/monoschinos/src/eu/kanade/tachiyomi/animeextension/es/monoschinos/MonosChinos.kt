@@ -27,7 +27,7 @@ import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import okhttp3.FormBody
-import okhttp3.Headers
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
@@ -42,9 +42,15 @@ class MonosChinos :
     override val lang = "es"
     override val supportsLatest = true
 
-    // User-Agent personalizado
-    override val headers: Headers = super.headers.newBuilder()
-        .add("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/151.0.0.0 Mobile Safari/537.36")
+    // Cliente con User-Agent personalizado para todas las peticiones
+    override val client: OkHttpClient = super.client.newBuilder()
+        .addInterceptor { chain ->
+            val original = chain.request()
+            val request = original.newBuilder()
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/151.0.0.0 Mobile Safari/537.36")
+                .build()
+            chain.proceed(request)
+        }
         .build()
 
     private val preferences by getPreferencesLazy()
