@@ -42,8 +42,11 @@ class MonosChinos :
     override val lang = "es"
     override val supportsLatest = true
 
-    // Cliente con User-Agent personalizado para todas las peticiones
-    override val client: OkHttpClient = super.client.newBuilder()
+    // Guardamos el cliente original antes de añadir el interceptor
+    private val originalClient = super.client
+
+    // Cliente con User-Agent para todas las peticiones propias y la mayoría de extractores
+    override val client: OkHttpClient = originalClient.newBuilder()
         .addInterceptor { chain ->
             val original = chain.request()
             val request = original.newBuilder()
@@ -291,17 +294,20 @@ class MonosChinos :
 
     // ====================== EXTRACTORES ======================
 
+    // Extractores que funcionan con el cliente con User‑Agent
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
     private val streamwishExtractor by lazy { StreamWishExtractor(client, headers) }
-    private val filemoonExtractor by lazy { FilemoonExtractor(client) }
     private val mixdropExtractor by lazy { MixDropExtractor(client) }
     private val doodExtractor by lazy { DoodExtractor(client) }
     private val streamTapeExtractor by lazy { StreamTapeExtractor(client) }
     private val uqloadExtractor by lazy { UqloadExtractor(client) }
     private val okruExtractor by lazy { OkruExtractor(client) }
-    private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
-    private val luluExtractor by lazy { LuluExtractor(client, headers) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
+
+    // Extractores que necesitan el cliente original (sin interceptor)
+    private val filemoonExtractor by lazy { FilemoonExtractor(originalClient) }
+    private val mp4uploadExtractor by lazy { Mp4uploadExtractor(originalClient) }
+    private val luluExtractor by lazy { LuluExtractor(originalClient, headers) }
 
     private val conventions = listOf(
         "voe" to listOf("voe", "tubelessceliolymph", "simpulumlamerop", "urochsunloath", "nathanfromsubject", "yip.", "metagnathtuggers", "donaldlineelse"),
