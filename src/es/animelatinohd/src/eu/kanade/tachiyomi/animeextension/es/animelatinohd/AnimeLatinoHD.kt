@@ -15,8 +15,6 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import keiyoushi.lib.autoUnpacker
-import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import kotlinx.serialization.json.Json
@@ -25,6 +23,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -611,7 +610,7 @@ class AnimeLatinoHD :
         }
     }
 
-    // ---------- LuluExtractor (sin dependencias externas) ----------
+    // ---------- LuluExtractor (sin autoUnpacker) ----------
     private class LuluExtractor(private val client: OkHttpClient) {
 
         private val headers = Headers.Builder()
@@ -623,7 +622,7 @@ class AnimeLatinoHD :
             val videos = mutableListOf<Video>()
 
             try {
-                val html = client.newCall(GET(url, headers)).execute().bodyString()
+                val html = client.newCall(GET(url, headers)).execute().body?.string() ?: return emptyList()
                 val m3u8Url = extractM3u8Url(html) ?: return emptyList()
                 val fixedUrl = fixM3u8Link(m3u8Url)
                 val quality = getResolution(fixedUrl)
@@ -637,21 +636,42 @@ class AnimeLatinoHD :
         }
 
         private fun extractM3u8Url(html: String): String? {
-            return when {
-                html.contains("eval(function(p,a,c,k,e") -> {
-                    val unpacked = autoUnpacker(html) ?: return null
-                    Pattern.compile("sources:\\[\\{file:\"([^\"]+)\"")
-                        .matcher(unpacked)
-                        .takeIf { it.find() }
-                        ?.group(1)
-                }
-                else -> {
-                    Pattern.compile("sources: \\[\\{file:\"(https?://[^\"]+)\"")
-                        .matcher(html)
-                        .takeIf { it.find() }
-                        ?.group(1)
+            // Buscar directamente el M3U8 en el HTML sin necesidad de desempaquetar
+            val patterns = listOf(
+                // Patrón común: sources: [{file:"https://..."}]
+                Regex("""sources:\s*\[\s*\{\s*file:\s*"([^"]+)"\s*\}""", RegexOption.IGNORE_CASE),
+                // Otro patrón: file: "https://..."
+                Regex("""file:\s*"([^"]+\.m3u8[^"]*)" """, RegexOption.IGNORE_CASE),
+                // URL directa de m3u8
+                Regex("""(https?://[^\s"']+\.m3u8[^\s"']*)""", RegexOption.IGNORE_CASE)
+            )
+
+            patterns.forEach { pattern ->
+                pattern.find(html)?.let { return it.groupValues[1] }
+            }
+
+            // Si no se encuentra, intentar con ofuscación simple (eval)
+            if (html.contains("eval(function(p,a,c,k,e"))) {
+                // Extraer el contenido entre comillas después de eval
+                val evalRegex = Regex("""eval\(\s*function\s*\([^)]*\)\s*\{[^}]*\}\s*\(([^)]+)\)""", RegexOption.DOT_MATCHES_ALL)
+                val match = evalRegex.find(html)
+                if (match != null) {
+                    val args = match.groupValues[1].split(",").map { it.trim().removeSurrounding("\"") }
+                    // Intentar construir la cadena decodificada (muy básico)
+                    // Mejor buscar el M3U8 en el resultado de la función (que suele estar en el último argumento)
+                    if (args.size >= 2) {
+                        val encoded = args[args.size - 1]
+                        // Reemplazar patrones simples
+                        val decoded = encoded.replace(Regex("""\\\\"""), "\\")
+                            .replace(Regex("""\\'"""), "'")
+                            .replace(Regex("""\\\"""",), "\"")
+                        // Buscar m3u8 en decoded
+                        Regex("""(https?://[^\s"']+\.m3u8[^\s"']*)""").find(decoded)?.let { return it.groupValues[1] }
+                    }
                 }
             }
+
+            return null
         }
 
         private fun fixM3u8Link(link: String): String {
@@ -695,7 +715,7 @@ class AnimeLatinoHD :
 
         private fun getResolution(m3u8Url: String): String = try {
             val content = client.newCall(GET(m3u8Url, headers)).execute()
-                .bodyString()
+                .body?.string() ?: return "Unknown"
 
             Pattern.compile("RESOLUTION=\\d+x(\\d+)")
                 .matcher(content)
