@@ -5,21 +5,17 @@ import android.util.Log
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.filemoonextractor.FilemoonExtractor
-import aniyomi.lib.voeextractor.VoeExtractor
-import aniyomi.lib.luluextractor.LuluExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
-import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.lib.autoUnpacker
-import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
@@ -65,7 +61,7 @@ class AnimeLatinoHD :
         private const val PREF_LANGUAGE_DEFAULT = "[LAT]"
         private val LANGUAGE_LIST = arrayOf("[LAT]", "[ESP]", "[SUB]")
 
-        // Listas de dominios alternativos para cada extractor
+        // Dominios alternativos
         private val FILEMOON_DOMAINS = listOf("filemoon", "moonplayer", "moviesm4u", "files.im", "filemoon.sx")
         private val VOE_DOMAINS = listOf(
             "voe", "tubelessceliolymph", "simpulumlamerop", "urochsunloath",
@@ -105,24 +101,21 @@ class AnimeLatinoHD :
         return AnimesPage(animeList, hasNextPage)
     }
 
-    // ====================== Latest (Recent Episodes) ======================
+    // ====================== Latest ======================
 
-    override fun latestUpdatesRequest(page: Int): Request =
-        GET(baseUrl) // Homepage
+    override fun latestUpdatesRequest(page: Int): Request = GET(baseUrl)
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val document = response.asJsoup()
         val animeMap = mutableMapOf<String, SAnime>()
 
-        // Primero intentamos extraer desde los enlaces de episodios recientes (DOM)
         document.select("a[href^=\"/ver/\"]").forEach { link ->
             val href = link.attr("href")
             val parts = href.split("/")
             if (parts.size < 3) return@forEach
-            val slug = parts[2] // el slug del anime
+            val slug = parts[2]
             if (animeMap.containsKey(slug)) return@forEach
 
-            // Buscar imagen y título dentro del enlace o en elementos adyacentes
             val img = link.select("img").first()
             val poster = img?.attr("src") ?: ""
             val title = link.select("h3, .title, [class*=\"title\"]").first()?.text() ?: ""
@@ -135,7 +128,6 @@ class AnimeLatinoHD :
             animeMap[slug] = anime
         }
 
-        // Si no encontramos nada, intentamos con el JSON (fallback)
         if (animeMap.isEmpty()) {
             document.select("script").forEach { script ->
                 if (script.data().contains("{\"props\":{\"pageProps\":")) {
@@ -216,7 +208,6 @@ class AnimeLatinoHD :
                 val href = link.attr("href")
                 val parts = href.split("/")
                 if (parts.size < 3) return@forEach
-                val slug = parts[2]
                 val number = parts.getOrNull(3)?.toFloatOrNull() ?: return@forEach
                 val episode = SEpisode.create().apply {
                     setUrlWithoutDomain(href)
@@ -270,7 +261,7 @@ class AnimeLatinoHD :
                 FilemoonExtractor(client).videosFromUrl(url, prefix = "$language Filemoon:", headers = headers)
             }
             VOE_DOMAINS.any { host.contains(it) } -> {
-                VoeExtractor(client, headers).videosFromUrl(url, prefix = "$language Voe:")
+                VoeExtractor(client).videosFromUrl(url, prefix = "$language Voe:")
             }
             LULU_DOMAINS.any { host.contains(it) } -> {
                 LuluExtractor(client).videosFromUrl(url, prefix = "$language Lulu:")
@@ -345,7 +336,6 @@ class AnimeLatinoHD :
         if (animeList.isEmpty()) {
             document.select("a[href^=\"/anime/\"]").forEach { link ->
                 val href = link.attr("href")
-                val slug = href.split("/").getOrNull(2) ?: return@forEach
                 val img = link.select("img").first()
                 val poster = img?.attr("src") ?: ""
                 val title = link.select("h3").first()?.text() ?: ""
@@ -508,33 +498,31 @@ class AnimeLatinoHD :
     }
 
     // ============================================================
-    //  EXTRACTORES INCORPORADOS (Voe y Lulu)
+    //  EXTRACTORES SIMPLIFICADOS (Voe y Lulu)
     // ============================================================
 
-    // ---------- VoeExtractor ----------
-    private class VoeExtractor(private val client: OkHttpClient, private val headers: Headers) {
+    // ---------- VoeExtractor (sin dependencias externas) ----------
+    private class VoeExtractor(private val client: OkHttpClient) {
 
         private val json: Json by injectLazy()
-
-        private val clientDdos by lazy { client.newBuilder().addInterceptor(DdosGuardInterceptor(client)).build() }
-
-        private val playlistUtils by lazy { PlaylistUtils(clientDdos, headers) }
 
         private val redirectRegex = Regex("""window.location.href\s*=\s*'([^']+)';""")
 
         fun videosFromUrl(url: String, prefix: String = ""): List<Video> {
             val videoList = mutableListOf<Video>()
-            var document = clientDdos.newCall(GET(url, headers)).execute().asJsoup()
+            var document = client.newCall(GET(url)).execute().asJsoup()
             var baseUrl = url
+
+            // Manejar redirección
             val scriptData = document.selectFirst("script")?.data()
             val redirectMatch = scriptData?.let { redirectRegex.find(it) }
-
             if (redirectMatch != null) {
                 val originalUrl = redirectMatch.groupValues[1]
                 baseUrl = originalUrl
-                document = clientDdos.newCall(GET(originalUrl, headers)).execute().asJsoup()
+                document = client.newCall(GET(originalUrl)).execute().asJsoup()
             }
 
+            // Obtener JSON cifrado
             val encodedString = document.selectFirst("script[type=application/json]")?.data()
                 ?.trim()?.substringAfter("[\"")?.substringBeforeLast("\"]") ?: return emptyList()
 
@@ -551,33 +539,35 @@ class AnimeLatinoHD :
             }
             val displayPrefix = if (cleanPrefix.isNotBlank()) cleanPrefix else "VOE"
 
-            val tracks = runCatching {
-                (decryptedJson["captions"] as? JsonArray).orEmpty()
-                    .mapNotNull { caption ->
-                        val obj = caption as? JsonObject ?: return@mapNotNull null
-                        val file = obj["file"]?.jsonPrimitive?.content ?: return@mapNotNull null
-                        val url = UrlUtils.fixUrl(file, baseUrl) ?: return@mapNotNull null
-                        Track(url, obj["label"]?.jsonPrimitive?.content ?: "Subtitle")
-                    }
-                    .let(playlistUtils::fixSubtitles)
-            }.getOrDefault(emptyList())
-            val subHint = if (tracks.isNotEmpty()) " [CC ${tracks.size}]" else ""
-
+            // Extraer videos desde m3u8
             if (m3u8 != null) {
-                playlistUtils.extractFromHls(
-                    m3u8,
-                    videoNameGen = { quality ->
-                        val base = if (displayPrefix == "VOE") "VOE:$quality" else "$displayPrefix - VOE $quality"
-                        base + subHint
-                    },
-                    subtitleList = tracks,
-                ).let { videoList.addAll(it) }
+                try {
+                    val m3u8Content = client.newCall(GET(m3u8)).execute().bodyString()
+                    val resolutionRegex = Regex("""#EXT-X-STREAM-INF:.*RESOLUTION=\d+x(\d+)""")
+                    val urlRegex = Regex("""^(?!\s*#)(https?://[^\s]+)""")
+                    var currentQuality = ""
+                    m3u8Content.split("\n").forEach { line ->
+                        if (line.contains("#EXT-X-STREAM-INF")) {
+                            val match = resolutionRegex.find(line)
+                            currentQuality = match?.groupValues?.get(1)?.let { "${it}p" } ?: "Unknown"
+                        } else if (currentQuality.isNotEmpty() && urlRegex.matches(line.trim())) {
+                            val videoUrl = line.trim()
+                            val qualityLabel = if (displayPrefix == "VOE") "VOE:$currentQuality" else "$displayPrefix - VOE $currentQuality"
+                            videoList.add(Video(videoUrl, qualityLabel, videoUrl))
+                            currentQuality = ""
+                        }
+                    }
+                } catch (_: Exception) {
+                    // Si falla el parseo, agregamos el m3u8 directo como fallback
+                    val fallbackLabel = if (displayPrefix == "VOE") "VOE:HLS" else "$displayPrefix - VOE HLS"
+                    videoList.add(Video(m3u8, fallbackLabel, m3u8))
+                }
             }
+
+            // Si hay MP4 directo
             if (mp4 != null) {
                 val mp4Quality = if (displayPrefix == "VOE") "VOE:MP4" else "$displayPrefix - VOE MP4"
-                videoList.add(
-                    Video(mp4, mp4Quality + subHint, mp4, subtitleTracks = tracks),
-                )
+                videoList.add(Video(mp4, mp4Quality, mp4))
             }
 
             return videoList
@@ -621,7 +611,7 @@ class AnimeLatinoHD :
         }
     }
 
-    // ---------- LuluExtractor ----------
+    // ---------- LuluExtractor (sin dependencias externas) ----------
     private class LuluExtractor(private val client: OkHttpClient) {
 
         private val headers = Headers.Builder()
