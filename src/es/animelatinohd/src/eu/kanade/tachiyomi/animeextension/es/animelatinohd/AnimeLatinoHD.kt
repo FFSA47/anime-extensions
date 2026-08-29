@@ -1,10 +1,10 @@
 package eu.kanade.tachiyomi.animeextension.es.animelatinohd
 
-import android.util.Base64
-import android.util.Log
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.luluextractor.LuluExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -23,13 +23,10 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
-import java.util.regex.Pattern
 
 class AnimeLatinoHD :
     AnimeHttpSource(),
@@ -60,14 +57,18 @@ class AnimeLatinoHD :
         private const val PREF_LANGUAGE_DEFAULT = "[LAT]"
         private val LANGUAGE_LIST = arrayOf("[LAT]", "[ESP]", "[SUB]")
 
-        // Dominios alternativos
-        private val FILEMOON_DOMAINS = listOf("filemoon", "moonplayer", "moviesm4u", "files.im", "filemoon.sx")
-        private val VOE_DOMAINS = listOf(
-            "voe", "tubelessceliolymph", "simpulumlamerop", "urochsunloath",
-            "nathanfromsubject", "yip.", "metagnathtuggers", "donaldlineelse"
+        // Convenciones de servidores (igual que en MonosChinos)
+        private val CONVENTIONS = listOf(
+            "voe" to listOf("voe", "tubelessceliolymph", "simpulumlamerop", "urochsunloath", "nathanfromsubject", "yip.", "metagnathtuggers", "donaldlineelse"),
+            "filemoon" to listOf("filemoon", "moonplayer", "moviesm4u", "files.im", "filemoon.sx"),
+            "lulu" to listOf("luluvdo", "lulu", "lulustream"),
         )
-        private val LULU_DOMAINS = listOf("luluvdo", "lulu", "lulustream")
     }
+
+    // Extractores de librería
+    private val voeExtractor by lazy { VoeExtractor(client, headers) }
+    private val filemoonExtractor by lazy { FilemoonExtractor(client) }
+    private val luluExtractor by lazy { LuluExtractor(client, headers) }
 
     // ====================== Popular ======================
 
@@ -255,16 +256,23 @@ class AnimeLatinoHD :
 
     private fun extractVideosFromUrl(url: String, language: String): List<Video> {
         val host = url.toHttpUrl().host.lowercase()
-        return when {
-            FILEMOON_DOMAINS.any { host.contains(it) } -> {
-                FilemoonExtractor(client).videosFromUrl(url, prefix = "$language Filemoon:", headers = headers)
-            }
-            VOE_DOMAINS.any { host.contains(it) } -> {
-                VoeExtractor(client).videosFromUrl(url, prefix = "$language Voe:")
-            }
-            LULU_DOMAINS.any { host.contains(it) } -> {
-                LuluExtractor(client).videosFromUrl(url, prefix = "$language Lulu:")
-            }
+
+        // Detectar servidor usando las convenciones
+        val matched = CONVENTIONS.firstOrNull { (_, aliases) ->
+            aliases.any { it in host }
+        }?.first
+
+        val effective = matched ?: when {
+            host.contains("filemoon") -> "filemoon"
+            host.contains("voe") -> "voe"
+            host.contains("lulu") -> "lulu"
+            else -> null
+        }
+
+        return when (effective) {
+            "voe" -> voeExtractor.videosFromUrl(url, prefix = "$language Voe:")
+            "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "$language Filemoon:", headers = headers)
+            "lulu" -> luluExtractor.videosFromUrl(url, prefix = "$language Lulu:")
             else -> emptyList()
         }
     }
@@ -449,7 +457,7 @@ class AnimeLatinoHD :
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         ListPreference(screen.context).apply {
             key = PREF_LANGUAGE_KEY
-            title = "Idioma preferido"
+            title = "Preferred language"
             entries = LANGUAGE_LIST
             entryValues = LANGUAGE_LIST
             setDefaultValue(PREF_LANGUAGE_DEFAULT)
@@ -465,7 +473,7 @@ class AnimeLatinoHD :
 
         ListPreference(screen.context).apply {
             key = PREF_QUALITY_KEY
-            title = "Calidad preferida"
+            title = "Preferred quality"
             entries = QUALITY_LIST
             entryValues = QUALITY_LIST
             setDefaultValue(PREF_QUALITY_DEFAULT)
@@ -481,7 +489,7 @@ class AnimeLatinoHD :
 
         ListPreference(screen.context).apply {
             key = PREF_SERVER_KEY
-            title = "Servidor preferido"
+            title = "Preferred server"
             entries = SERVER_LIST
             entryValues = SERVER_LIST
             setDefaultValue(PREF_SERVER_DEFAULT)
@@ -494,237 +502,5 @@ class AnimeLatinoHD :
                 preferences.edit().putString(key, entry).commit()
             }
         }.also(screen::addPreference)
-    }
-
-    // ============================================================
-    //  EXTRACTORES SIMPLIFICADOS (Voe y Lulu)
-    // ============================================================
-
-    // ---------- VoeExtractor (sin dependencias externas) ----------
-    private class VoeExtractor(private val client: OkHttpClient) {
-
-        private val json: Json by injectLazy()
-
-        private val redirectRegex = Regex("""window.location.href\s*=\s*'([^']+)';""")
-
-        fun videosFromUrl(url: String, prefix: String = ""): List<Video> {
-            val videoList = mutableListOf<Video>()
-            var document = client.newCall(GET(url)).execute().asJsoup()
-            var baseUrl = url
-
-            // Manejar redirección
-            val scriptData = document.selectFirst("script")?.data()
-            val redirectMatch = scriptData?.let { redirectRegex.find(it) }
-            if (redirectMatch != null) {
-                val originalUrl = redirectMatch.groupValues[1]
-                baseUrl = originalUrl
-                document = client.newCall(GET(originalUrl)).execute().asJsoup()
-            }
-
-            // Obtener JSON cifrado
-            val encodedString = document.selectFirst("script[type=application/json]")?.data()
-                ?.trim()?.substringAfter("[\"")?.substringBeforeLast("\"]") ?: return emptyList()
-
-            val decryptedJson = decryptF7(encodedString) ?: return emptyList()
-            val m3u8 = decryptedJson["source"]?.jsonPrimitive?.content
-            val mp4 = decryptedJson["direct_access_url"]?.jsonPrimitive?.content
-
-            var cleanPrefix = prefix.trim()
-            if (cleanPrefix.startsWith("(") && cleanPrefix.endsWith(")")) {
-                cleanPrefix = cleanPrefix.substring(1, cleanPrefix.length - 1).trim()
-            }
-            if (cleanPrefix.endsWith("-")) {
-                cleanPrefix = cleanPrefix.removeSuffix("-").trim()
-            }
-            val displayPrefix = if (cleanPrefix.isNotBlank()) cleanPrefix else "VOE"
-
-            // Extraer videos desde m3u8
-            if (m3u8 != null) {
-                try {
-                    val m3u8Content = client.newCall(GET(m3u8)).execute().bodyString()
-                    val resolutionRegex = Regex("""#EXT-X-STREAM-INF:.*RESOLUTION=\d+x(\d+)""")
-                    val urlRegex = Regex("""^(?!\s*#)(https?://[^\s]+)""")
-                    var currentQuality = ""
-                    m3u8Content.split("\n").forEach { line ->
-                        if (line.contains("#EXT-X-STREAM-INF")) {
-                            val match = resolutionRegex.find(line)
-                            currentQuality = match?.groupValues?.get(1)?.let { "${it}p" } ?: "Unknown"
-                        } else if (currentQuality.isNotEmpty() && urlRegex.matches(line.trim())) {
-                            val videoUrl = line.trim()
-                            val qualityLabel = if (displayPrefix == "VOE") "VOE:$currentQuality" else "$displayPrefix - VOE $currentQuality"
-                            videoList.add(Video(videoUrl, qualityLabel, videoUrl))
-                            currentQuality = ""
-                        }
-                    }
-                } catch (_: Exception) {
-                    // Si falla el parseo, agregamos el m3u8 directo como fallback
-                    val fallbackLabel = if (displayPrefix == "VOE") "VOE:HLS" else "$displayPrefix - VOE HLS"
-                    videoList.add(Video(m3u8, fallbackLabel, m3u8))
-                }
-            }
-
-            // Si hay MP4 directo
-            if (mp4 != null) {
-                val mp4Quality = if (displayPrefix == "VOE") "VOE:MP4" else "$displayPrefix - VOE MP4"
-                videoList.add(Video(mp4, mp4Quality, mp4))
-            }
-
-            return videoList
-        }
-
-        private fun decryptF7(p8: String): JsonObject? = try {
-            val vF = rot13(p8)
-            val vF2 = replacePatterns(vF)
-            val vF3 = removeUnderscores(vF2)
-            val vF4 = base64Decode(vF3)
-            val vF5 = charShift(vF4, 3)
-            val vF6 = reverse(vF5)
-            val vAtob = base64Decode(vF6)
-            json.decodeFromString<JsonObject>(vAtob)
-        } catch (e: Exception) {
-            Log.e("VoeExtractor", "Decryption error: ${e.message}")
-            null
-        }
-
-        private fun rot13(input: String): String = input.map { c ->
-            when (c) {
-                in 'A'..'Z' -> ((c - 'A' + 13) % 26 + 'A'.code).toChar()
-                in 'a'..'z' -> ((c - 'a' + 13) % 26 + 'a'.code).toChar()
-                else -> c
-            }
-        }.joinToString("")
-
-        private val patternsRegex = listOf("@$", "^^", "~@", "%?", "*~", "!!", "#&").joinToString("|") { Regex.escape(it) }.toRegex()
-
-        private fun replacePatterns(input: String): String = input.replace(patternsRegex, "_")
-
-        private fun removeUnderscores(input: String): String = input.replace("_", "")
-
-        private fun charShift(input: String, shift: Int): String = input.map { (it.code - shift).toChar() }.joinToString("")
-
-        private fun reverse(input: String): String = input.reversed()
-
-        private fun base64Decode(input: String): String {
-            val decodedBytes = Base64.decode(input, Base64.DEFAULT)
-            return String(decodedBytes, Charsets.ISO_8859_1)
-        }
-    }
-
-    // ---------- LuluExtractor (sin autoUnpacker) ----------
-    private class LuluExtractor(private val client: OkHttpClient) {
-
-        private val headers = Headers.Builder()
-            .add("Referer", "https://luluvdo.com/")
-            .add("Origin", "https://luluvdo.com")
-            .build()
-
-        fun videosFromUrl(url: String, prefix: String): List<Video> {
-            val videos = mutableListOf<Video>()
-
-            try {
-                val html = client.newCall(GET(url, headers)).execute().body?.string() ?: return emptyList()
-                val m3u8Url = extractM3u8Url(html) ?: return emptyList()
-                val fixedUrl = fixM3u8Link(m3u8Url)
-                val quality = getResolution(fixedUrl)
-
-                videos.add(Video(fixedUrl, "${prefix}Lulu - $quality", fixedUrl, headers))
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-
-            return videos
-        }
-
-        private fun extractM3u8Url(html: String): String? {
-            // Buscar directamente el M3U8 en el HTML sin necesidad de desempaquetar
-            val patterns = listOf(
-                // Patrón común: sources: [{file:"https://..."}]
-                Regex("""sources:\s*\[\s*\{\s*file:\s*"([^"]+)"\s*\}""", RegexOption.IGNORE_CASE),
-                // Otro patrón: file: "https://..."
-                Regex("""file:\s*"([^"]+\.m3u8[^"]*)" """, RegexOption.IGNORE_CASE),
-                // URL directa de m3u8
-                Regex("""(https?://[^\s"']+\.m3u8[^\s"']*)""", RegexOption.IGNORE_CASE)
-            )
-
-            patterns.forEach { pattern ->
-                pattern.find(html)?.let { return it.groupValues[1] }
-            }
-
-            // Si no se encuentra, intentar con ofuscación simple (eval)
-            if (html.contains("eval(function(p,a,c,k,e"))) {
-                // Extraer el contenido entre comillas después de eval
-                val evalRegex = Regex("""eval\(\s*function\s*\([^)]*\)\s*\{[^}]*\}\s*\(([^)]+)\)""", RegexOption.DOT_MATCHES_ALL)
-                val match = evalRegex.find(html)
-                if (match != null) {
-                    val args = match.groupValues[1].split(",").map { it.trim().removeSurrounding("\"") }
-                    // Intentar construir la cadena decodificada (muy básico)
-                    // Mejor buscar el M3U8 en el resultado de la función (que suele estar en el último argumento)
-                    if (args.size >= 2) {
-                        val encoded = args[args.size - 1]
-                        // Reemplazar patrones simples
-                        val decoded = encoded.replace(Regex("""\\\\"""), "\\")
-                            .replace(Regex("""\\'"""), "'")
-                            .replace(Regex("""\\\"""",), "\"")
-                        // Buscar m3u8 en decoded
-                        Regex("""(https?://[^\s"']+\.m3u8[^\s"']*)""").find(decoded)?.let { return it.groupValues[1] }
-                    }
-                }
-            }
-
-            return null
-        }
-
-        private fun fixM3u8Link(link: String): String {
-            val paramOrder = listOf("t", "s", "e", "f")
-            val params = Pattern.compile("[?&]([^=]*)=([^&]*)").matcher(link).let { matcher ->
-                generateSequence { if (matcher.find()) matcher.group(1) to matcher.group(2) else null }.toList()
-            }
-
-            val paramDict = mutableMapOf<String, String>()
-            val extraParams = mutableMapOf<String, String>()
-
-            params.forEachIndexed { index, (key, value) ->
-                if (key.isNullOrEmpty()) {
-                    if (index < paramOrder.size) {
-                        if (value != null) {
-                            paramDict[paramOrder[index]] = value
-                        }
-                    }
-                } else {
-                    if (value != null) {
-                        extraParams[key] = value
-                    }
-                }
-            }
-
-            extraParams["i"] = "0.3"
-            extraParams["sp"] = "0"
-
-            val baseUrl = link.split("?")[0]
-
-            val fixedLink = baseUrl.toHttpUrl().newBuilder()
-            paramOrder.filter { paramDict.containsKey(it) }.forEach { key ->
-                fixedLink.addQueryParameter(key, paramDict[key])
-            }
-            extraParams.forEach { (key, value) ->
-                fixedLink.addQueryParameter(key, value)
-            }
-
-            return fixedLink.build().toString()
-        }
-
-        private fun getResolution(m3u8Url: String): String = try {
-            val content = client.newCall(GET(m3u8Url, headers)).execute()
-                .body?.string() ?: return "Unknown"
-
-            Pattern.compile("RESOLUTION=\\d+x(\\d+)")
-                .matcher(content)
-                .takeIf { it.find() }
-                ?.group(1)
-                ?.let { "${it}p" }
-                ?: "Unknown"
-        } catch (_: Exception) {
-            "Unknown"
-        }
     }
 }
