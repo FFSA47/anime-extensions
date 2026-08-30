@@ -191,39 +191,47 @@ class AnimeLatinoHD :
         val document = response.asJsoup()
         val anime = SAnime.create()
 
-        // Try to parse from embedded JSON first
-        document.select("script").forEach { script ->
-            if (script.data().contains("{\"props\":{\"pageProps\":")) {
-                try {
-                    val jObject = json.decodeFromString<JsonObject>(script.data())
-                    val pageProps = jObject["props"]?.jsonObject?.get("pageProps")?.jsonObject
-                    val data = pageProps?.get("data")?.jsonObject ?: return@forEach
+        // 1. Try JSON-LD (application/ld+json) - most reliable
+        document.select("script[type=\"application/ld+json\"]").forEach { script ->
+            try {
+                val jsonLd = json.decodeFromString<JsonObject>(script.data())
+                val name = jsonLd["name"]?.jsonPrimitive?.content
+                if (!name.isNullOrBlank()) {
+                    anime.title = name
+                    anime.description = jsonLd["description"]?.jsonPrimitive?.content ?: ""
+                    anime.genre = jsonLd["genre"]?.jsonArray?.joinToString(", ") { it.jsonPrimitive.content } ?: ""
+                    anime.thumbnail_url = jsonLd["image"]?.jsonPrimitive?.content ?: ""
+                }
+            } catch (_: Exception) { /* ignore */ }
+        }
 
-                    anime.title = data["name"]?.jsonPrimitive?.content ?: ""
-                    anime.genre = data["genres"]?.jsonPrimitive?.content?.split(",")?.joinToString() ?: ""
-                    anime.description = data["overview"]?.jsonPrimitive?.content ?: ""
-                    anime.status = parseStatus(data["status"]?.jsonPrimitive?.content ?: "")
-                    anime.thumbnail_url = "https://image.tmdb.org/t/p/w600_and_h900_bestv2${data["poster"]?.jsonPrimitive?.content ?: ""}"
-                    anime.setUrlWithoutDomain("/anime/${data["slug"]?.jsonPrimitive?.content ?: ""}")
-                } catch (_: Exception) { /* ignore */ }
+        // 2. Fallback: parse from props JSON
+        if (anime.title.isBlank()) {
+            document.select("script").forEach { script ->
+                if (script.data().contains("{\"props\":{\"pageProps\":")) {
+                    try {
+                        val jObject = json.decodeFromString<JsonObject>(script.data())
+                        val pageProps = jObject["props"]?.jsonObject?.get("pageProps")?.jsonObject
+                        val data = pageProps?.get("data")?.jsonObject ?: return@forEach
+
+                        anime.title = data["name"]?.jsonPrimitive?.content ?: ""
+                        anime.genre = data["genres"]?.jsonPrimitive?.content?.split(",")?.joinToString() ?: ""
+                        anime.description = data["overview"]?.jsonPrimitive?.content ?: ""
+                        anime.status = parseStatus(data["status"]?.jsonPrimitive?.content ?: "")
+                        anime.thumbnail_url = "https://image.tmdb.org/t/p/w600_and_h900_bestv2${data["poster"]?.jsonPrimitive?.content ?: ""}"
+                        anime.setUrlWithoutDomain("/anime/${data["slug"]?.jsonPrimitive?.content ?: ""}")
+                    } catch (_: Exception) { /* ignore */ }
+                }
             }
         }
 
-        // Robust DOM fallback if JSON fails
+        // 3. DOM fallback if all else fails
         if (anime.title.isBlank()) {
-            // Title: try multiple selectors
             anime.title = document.selectFirst("h1.fs-2, h1, .title, [class*=\"title\"]")?.text()?.trim() ?: "Unknown Title"
-
-            // Thumbnail: look for any image with tmdb or poster
             anime.thumbnail_url = document.selectFirst("img[src*=\"tmdb\"], img[src*=\"poster\"], .poster img")?.attr("src") ?: ""
-
-            // Description: try common selectors
             anime.description = document.selectFirst("p.description, .description, .sinopsis, [class*=\"sinopsis\"], [class*=\"description\"]")?.text()?.trim() ?: ""
-
-            // Genre: extract from tags/badges
             anime.genre = document.select(".badge.bg-secondary, .genre, [class*=\"genre\"]").joinToString(", ") { it.text() }
 
-            // Status: look for "Estado" or status text
             val statusText = document.selectFirst(".col:has(.text-muted:contains(Estado)) div.ms-2 div:last-child, [class*=\"status\"]")?.text()
             anime.status = when {
                 statusText?.contains("Emisión", ignoreCase = true) == true -> SAnime.ONGOING
@@ -234,7 +242,7 @@ class AnimeLatinoHD :
 
         // Ensure title is never empty
         if (anime.title.isBlank()) {
-            anime.title = "Unknown Anime"
+            anime.title = "Unknown Title"
         }
 
         return anime
@@ -372,13 +380,23 @@ class AnimeLatinoHD :
         val stateFilter = filterList.find { it is StateFilter } as StateFilter
         val typeFilter = filterList.find { it is TypeFilter } as TypeFilter
 
-        val filterUrl = if (query.isBlank()) {
-            "$baseUrl/animes?page=$page&genre=${genreFilter.toUriPart()}&status=${stateFilter.toUriPart()}&type=${typeFilter.toUriPart()}"
+        val url = if (query.isNotBlank()) {
+            // Text search: use /directorio?search=query
+            val base = "$baseUrl/directorio?search=$query"
+            if (page > 1) "$base&page=$page" else base
         } else {
-            "$baseUrl/animes?page=$page&search=$query"
+            // Filter search: use /directorio with filters
+            var base = "$baseUrl/directorio"
+            val params = mutableListOf<String>()
+            genreFilter.toUriPart().takeIf { it.isNotBlank() }?.let { params.add("genre=$it") }
+            stateFilter.toUriPart().takeIf { it.isNotBlank() }?.let { params.add("status=$it") }
+            typeFilter.toUriPart().takeIf { it.isNotBlank() }?.let { params.add("type=$it") }
+            if (page > 1) params.add("page=$page")
+            if (params.isNotEmpty()) base += "?" + params.joinToString("&")
+            base
         }
 
-        return GET(filterUrl)
+        return GET(url)
     }
 
     override fun getFilterList(): AnimeFilterList = AnimeFilterList(
@@ -389,48 +407,8 @@ class AnimeLatinoHD :
     )
 
     override fun searchAnimeParse(response: Response): AnimesPage {
-        val document = response.asJsoup()
-        val animeList = mutableListOf<SAnime>()
-        val hasNextPage = document.select("#__next > main > div > div[class*=\"Animes_paginate\"] a:last-child svg").any()
-
-        document.select("script").forEach { script ->
-            if (script.data().contains("{\"props\":{\"pageProps\":")) {
-                try {
-                    val jObject = json.decodeFromString<JsonObject>(script.data())
-                    val pageProps = jObject["props"]?.jsonObject?.get("pageProps")?.jsonObject
-                    val data = pageProps?.get("data")?.jsonObject ?: return@forEach
-
-                    val items = data["data"]?.jsonArray ?: return@forEach
-                    items.forEach { item ->
-                        val animeItem = item.jsonObject
-                        val anime = SAnime.create().apply {
-                            setUrlWithoutDomain("/anime/${animeItem["slug"]?.jsonPrimitive?.content ?: return@forEach}")
-                            thumbnail_url = "https://image.tmdb.org/t/p/w200${animeItem["poster"]?.jsonPrimitive?.content ?: ""}"
-                            title = animeItem["name"]?.jsonPrimitive?.content ?: ""
-                        }
-                        animeList.add(anime)
-                    }
-                } catch (_: Exception) { /* ignore */ }
-            }
-        }
-
-        if (animeList.isEmpty()) {
-            document.select("a[href^=\"/anime/\"]").forEach { link ->
-                val href = link.attr("href")
-                val img = link.select("img").first()
-                val poster = img?.attr("src") ?: ""
-                val title = link.select("h3").first()?.text() ?: ""
-
-                val anime = SAnime.create().apply {
-                    setUrlWithoutDomain(href)
-                    thumbnail_url = poster
-                    this.title = title
-                }
-                animeList.add(anime)
-            }
-        }
-
-        return AnimesPage(animeList, hasNextPage)
+        // Reuse the same parsing logic as popularAnimeParse
+        return popularAnimeParse(response)
     }
 
     // ====================== Filters ======================
@@ -505,11 +483,11 @@ class AnimeLatinoHD :
             "Type",
             arrayOf(
                 Pair("All", ""),
-                Pair("TV", "tv"),
-                Pair("Movie", "movie"),
-                Pair("Special", "special"),
-                Pair("OVA", "ova"),
-                Pair("ONA", "ona"),
+                Pair("TV", "TV"),
+                Pair("Movie", "Movie"),
+                Pair("Special", "Special"),
+                Pair("OVA", "OVA"),
+                Pair("ONA", "ONA"),
             ),
         )
 
