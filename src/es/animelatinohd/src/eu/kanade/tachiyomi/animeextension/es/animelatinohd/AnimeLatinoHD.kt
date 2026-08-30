@@ -16,9 +16,7 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -33,15 +31,11 @@ class AnimeLatinoHD :
     ConfigurableAnimeSource {
 
     override val name = "AnimeLatinoHD"
-
     override val baseUrl = "https://www.animelatinohd.com"
-
     override val lang = "es"
-
     override val supportsLatest = true
 
     private val json: Json by injectLazy()
-
     private val preferences by getPreferencesLazy()
 
     companion object {
@@ -57,7 +51,7 @@ class AnimeLatinoHD :
         private const val PREF_LANGUAGE_DEFAULT = "[LAT]"
         private val LANGUAGE_LIST = arrayOf("[LAT]", "[ESP]", "[SUB]")
 
-        // Convenciones de servidores (igual que en MonosChinos)
+        // Domain aliases for each extractor (same as MonosChinos)
         private val CONVENTIONS = listOf(
             "voe" to listOf("voe", "tubelessceliolymph", "simpulumlamerop", "urochsunloath", "nathanfromsubject", "yip.", "metagnathtuggers", "donaldlineelse"),
             "filemoon" to listOf("filemoon", "moonplayer", "moviesm4u", "files.im", "filemoon.sx"),
@@ -65,43 +59,76 @@ class AnimeLatinoHD :
         )
     }
 
-    // Extractores de librería
+    // Library extractors
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
     private val filemoonExtractor by lazy { FilemoonExtractor(client) }
     private val luluExtractor by lazy { LuluExtractor(client, headers) }
 
-    // ====================== Popular ======================
+    // ====================== Popular (Directory) ======================
 
-    override fun popularAnimeRequest(page: Int): Request =
-        GET("$baseUrl/animes/populares")
+    override fun popularAnimeRequest(page: Int): Request {
+        val url = if (page == 1) "$baseUrl/directorio" else "$baseUrl/directorio?page=$page"
+        return GET(url)
+    }
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val document = response.asJsoup()
         val animeList = mutableListOf<SAnime>()
-        val hasNextPage = document.select("#__next > main > div > div[class*=\"Animes_paginate\"] a:last-child svg").any()
 
-        document.select("script").forEach { script ->
-            if (script.data().contains("{\"props\":{\"pageProps\":")) {
-                val jObject = json.decodeFromString<JsonObject>(script.data())
-                val pageProps = jObject["props"]?.jsonObject?.get("pageProps")?.jsonObject
-                val data = pageProps?.get("data")?.jsonObject ?: return@forEach
+        // Extract from DOM (directory grid)
+        document.select("a[href^=\"/anime/\"]").forEach { link ->
+            val href = link.attr("href")
+            if (href.isBlank()) return@forEach
 
-                val items = data["data"]?.jsonArray ?: data["popular_today"]?.jsonArray
-                items?.forEach { item ->
-                    val animeItem = item.jsonObject
-                    val anime = SAnime.create().apply {
-                        setUrlWithoutDomain("anime/${animeItem["slug"]?.jsonPrimitive?.content ?: return@forEach}")
-                        thumbnail_url = "https://image.tmdb.org/t/p/w200${animeItem["poster"]?.jsonPrimitive?.content ?: ""}"
-                        title = animeItem["name"]?.jsonPrimitive?.content ?: ""
-                    }
-                    animeList.add(anime)
+            val img = link.select("img").first()
+            val poster = img?.attr("src")?.takeIf { it.isNotBlank() && !it.contains("anime.png") }
+                ?: img?.attr("data-src")?.takeIf { it.isNotBlank() }
+                ?: ""
+
+            val titleElement = link.select("h3").first()
+            val title = titleElement?.text()?.trim() ?: return@forEach
+
+            val yearElement = link.select("p").first()
+            val year = yearElement?.text()?.trim() ?: ""
+
+            val anime = SAnime.create().apply {
+                setUrlWithoutDomain(href)
+                thumbnail_url = poster
+                this.title = title
+                description = year
+            }
+            animeList.add(anime)
+        }
+
+        // Fallback: parse from embedded JSON
+        if (animeList.isEmpty()) {
+            document.select("script").forEach { script ->
+                if (script.data().contains("{\"props\":{\"pageProps\":")) {
+                    try {
+                        val jObject = json.decodeFromString<JsonObject>(script.data())
+                        val pageProps = jObject["props"]?.jsonObject?.get("pageProps")?.jsonObject
+                        val data = pageProps?.get("data")?.jsonObject ?: return@forEach
+                        val items = data["data"]?.jsonArray ?: return@forEach
+                        items.forEach { item ->
+                            val animeItem = item.jsonObject
+                            val anime = SAnime.create().apply {
+                                setUrlWithoutDomain("/anime/${animeItem["slug"]?.jsonPrimitive?.content ?: return@forEach}")
+                                thumbnail_url = "https://image.tmdb.org/t/p/w200${animeItem["poster"]?.jsonPrimitive?.content ?: ""}"
+                                title = animeItem["name"]?.jsonPrimitive?.content ?: ""
+                            }
+                            animeList.add(anime)
+                        }
+                    } catch (_: Exception) { /* ignore */ }
                 }
             }
         }
-        return AnimesPage(animeList, hasNextPage)
+
+        // Detect next page
+        val nextPage = document.selectFirst("a[href*=\"page=\"]:not([href*=\"page=1\"])") != null
+        return AnimesPage(animeList, nextPage)
     }
 
-    // ====================== Latest ======================
+    // ====================== Latest Episodes ======================
 
     override fun latestUpdatesRequest(page: Int): Request = GET(baseUrl)
 
@@ -109,6 +136,7 @@ class AnimeLatinoHD :
         val document = response.asJsoup()
         val animeMap = mutableMapOf<String, SAnime>()
 
+        // Parse from recent episode links on homepage
         document.select("a[href^=\"/ver/\"]").forEach { link ->
             val href = link.attr("href")
             val parts = href.split("/")
@@ -121,32 +149,35 @@ class AnimeLatinoHD :
             val title = link.select("h3, .title, [class*=\"title\"]").first()?.text() ?: ""
 
             val anime = SAnime.create().apply {
-                setUrlWithoutDomain("anime/$slug")
+                setUrlWithoutDomain("/anime/$slug")
                 thumbnail_url = poster
                 this.title = title
             }
             animeMap[slug] = anime
         }
 
+        // Fallback: parse from JSON
         if (animeMap.isEmpty()) {
             document.select("script").forEach { script ->
                 if (script.data().contains("{\"props\":{\"pageProps\":")) {
-                    val jObject = json.decodeFromString<JsonObject>(script.data())
-                    val pageProps = jObject["props"]?.jsonObject?.get("pageProps")?.jsonObject
-                    val data = pageProps?.get("data")?.jsonObject ?: return@forEach
-                    val episodes = data["episodes"]?.jsonArray ?: data["latest_episodes"]?.jsonArray
-                    episodes?.forEach { episodeElement ->
-                        val episodeObj = episodeElement.jsonObject
-                        val animeData = episodeObj["anime"]?.jsonObject ?: return@forEach
-                        val slug = animeData["slug"]?.jsonPrimitive?.content ?: return@forEach
-                        if (animeMap.containsKey(slug)) return@forEach
-                        val anime = SAnime.create().apply {
-                            setUrlWithoutDomain("anime/$slug")
-                            thumbnail_url = "https://image.tmdb.org/t/p/w200${animeData["poster"]?.jsonPrimitive?.content ?: ""}"
-                            title = animeData["name"]?.jsonPrimitive?.content ?: ""
+                    try {
+                        val jObject = json.decodeFromString<JsonObject>(script.data())
+                        val pageProps = jObject["props"]?.jsonObject?.get("pageProps")?.jsonObject
+                        val data = pageProps?.get("data")?.jsonObject ?: return@forEach
+                        val episodes = data["episodes"]?.jsonArray ?: data["latest_episodes"]?.jsonArray
+                        episodes?.forEach { episodeElement ->
+                            val episodeObj = episodeElement.jsonObject
+                            val animeData = episodeObj["anime"]?.jsonObject ?: return@forEach
+                            val slug = animeData["slug"]?.jsonPrimitive?.content ?: return@forEach
+                            if (animeMap.containsKey(slug)) return@forEach
+                            val anime = SAnime.create().apply {
+                                setUrlWithoutDomain("/anime/$slug")
+                                thumbnail_url = "https://image.tmdb.org/t/p/w200${animeData["poster"]?.jsonPrimitive?.content ?: ""}"
+                                title = animeData["name"]?.jsonPrimitive?.content ?: ""
+                            }
+                            animeMap[slug] = anime
                         }
-                        animeMap[slug] = anime
-                    }
+                    } catch (_: Exception) { /* ignore */ }
                 }
             }
         }
@@ -162,18 +193,28 @@ class AnimeLatinoHD :
 
         document.select("script").forEach { script ->
             if (script.data().contains("{\"props\":{\"pageProps\":")) {
-                val jObject = json.decodeFromString<JsonObject>(script.data())
-                val pageProps = jObject["props"]?.jsonObject?.get("pageProps")?.jsonObject
-                val data = pageProps?.get("data")?.jsonObject ?: return@forEach
+                try {
+                    val jObject = json.decodeFromString<JsonObject>(script.data())
+                    val pageProps = jObject["props"]?.jsonObject?.get("pageProps")?.jsonObject
+                    val data = pageProps?.get("data")?.jsonObject ?: return@forEach
 
-                anime.title = data["name"]?.jsonPrimitive?.content ?: ""
-                anime.genre = data["genres"]?.jsonPrimitive?.content?.split(",")?.joinToString() ?: ""
-                anime.description = data["overview"]?.jsonPrimitive?.content ?: ""
-                anime.status = parseStatus(data["status"]?.jsonPrimitive?.content ?: "")
-                anime.thumbnail_url = "https://image.tmdb.org/t/p/w600_and_h900_bestv2${data["poster"]?.jsonPrimitive?.content ?: ""}"
-                anime.setUrlWithoutDomain("anime/${data["slug"]?.jsonPrimitive?.content ?: ""}")
+                    anime.title = data["name"]?.jsonPrimitive?.content ?: ""
+                    anime.genre = data["genres"]?.jsonPrimitive?.content?.split(",")?.joinToString() ?: ""
+                    anime.description = data["overview"]?.jsonPrimitive?.content ?: ""
+                    anime.status = parseStatus(data["status"]?.jsonPrimitive?.content ?: "")
+                    anime.thumbnail_url = "https://image.tmdb.org/t/p/w600_and_h900_bestv2${data["poster"]?.jsonPrimitive?.content ?: ""}"
+                    anime.setUrlWithoutDomain("/anime/${data["slug"]?.jsonPrimitive?.content ?: ""}")
+                } catch (_: Exception) { /* ignore */ }
             }
         }
+
+        // Fallback from DOM if JSON fails
+        if (anime.title.isBlank()) {
+            anime.title = document.selectFirst("h1")?.text() ?: ""
+            anime.thumbnail_url = document.selectFirst("img[src*=\"tmdb\"]")?.attr("src") ?: ""
+            anime.description = document.selectFirst("p.description, .description, .sinopsis")?.text() ?: ""
+        }
+
         return anime
     }
 
@@ -183,26 +224,31 @@ class AnimeLatinoHD :
         val document = response.asJsoup()
         val episodeList = mutableListOf<SEpisode>()
 
+        // The site renders all episodes at once (no pagination).
+        // This single request fetches the entire list, even for long-running shows.
         document.select("script").forEach { script ->
             if (script.data().contains("{\"props\":{\"pageProps\":")) {
-                val jObject = json.decodeFromString<JsonObject>(script.data())
-                val pageProps = jObject["props"]?.jsonObject?.get("pageProps")?.jsonObject
-                val data = pageProps?.get("data")?.jsonObject ?: return@forEach
+                try {
+                    val jObject = json.decodeFromString<JsonObject>(script.data())
+                    val pageProps = jObject["props"]?.jsonObject?.get("pageProps")?.jsonObject
+                    val data = pageProps?.get("data")?.jsonObject ?: return@forEach
 
-                val episodes = data["episodes"]?.jsonArray ?: return@forEach
-                episodes.forEach { item ->
-                    val episodeObj = item.jsonObject
-                    val number = episodeObj["number"]?.jsonPrimitive?.content?.toFloatOrNull() ?: return@forEach
-                    val episode = SEpisode.create().apply {
-                        setUrlWithoutDomain("ver/${data["slug"]?.jsonPrimitive?.content ?: ""}/$number")
-                        episode_number = number
-                        name = "Episodio $number"
+                    val episodes = data["episodes"]?.jsonArray ?: return@forEach
+                    episodes.forEach { item ->
+                        val episodeObj = item.jsonObject
+                        val number = episodeObj["number"]?.jsonPrimitive?.content?.toFloatOrNull() ?: return@forEach
+                        val episode = SEpisode.create().apply {
+                            setUrlWithoutDomain("/ver/${data["slug"]?.jsonPrimitive?.content ?: ""}/$number")
+                            episode_number = number
+                            name = "Episodio $number"
+                        }
+                        episodeList.add(episode)
                     }
-                    episodeList.add(episode)
-                }
+                } catch (_: Exception) { /* ignore */ }
             }
         }
 
+        // Fallback: parse from DOM links
         if (episodeList.isEmpty()) {
             document.select("a[href^=\"/ver/\"]").forEach { link ->
                 val href = link.attr("href")
@@ -230,24 +276,26 @@ class AnimeLatinoHD :
 
         document.select("script").forEach { script ->
             if (script.data().contains("{\"props\":{\"pageProps\":")) {
-                val jObject = json.decodeFromString<JsonObject>(script.data())
-                val pageProps = jObject["props"]?.jsonObject?.get("pageProps")?.jsonObject
-                val data = pageProps?.get("data")?.jsonObject ?: return@forEach
+                try {
+                    val jObject = json.decodeFromString<JsonObject>(script.data())
+                    val pageProps = jObject["props"]?.jsonObject?.get("pageProps")?.jsonObject
+                    val data = pageProps?.get("data")?.jsonObject ?: return@forEach
 
-                val players = data["players"]?.jsonArray ?: return@forEach
-                players.forEach { playerElement ->
-                    val playerObj = playerElement.jsonObject
-                    val language = when (playerObj["language"]?.jsonPrimitive?.content) {
-                        "LAT" -> "[LAT]"
-                        "ESP" -> "[ESP]"
-                        "SUB" -> "[SUB]"
-                        else -> "[SUB]"
+                    val players = data["players"]?.jsonArray ?: return@forEach
+                    players.forEach { playerElement ->
+                        val playerObj = playerElement.jsonObject
+                        val language = when (playerObj["language"]?.jsonPrimitive?.content) {
+                            "LAT" -> "[LAT]"
+                            "ESP" -> "[ESP]"
+                            "SUB" -> "[SUB]"
+                            else -> "[SUB]"
+                        }
+
+                        val bridgeUrl = playerObj["bridge_url"]?.jsonPrimitive?.content ?: return@forEach
+                        val videos = extractVideosFromUrl(bridgeUrl, language)
+                        videoList.addAll(videos)
                     }
-
-                    val bridgeUrl = playerObj["bridge_url"]?.jsonPrimitive?.content ?: return@forEach
-                    val videos = extractVideosFromUrl(bridgeUrl, language)
-                    videoList.addAll(videos)
-                }
+                } catch (_: Exception) { /* ignore */ }
             }
         }
 
@@ -257,7 +305,7 @@ class AnimeLatinoHD :
     private fun extractVideosFromUrl(url: String, language: String): List<Video> {
         val host = url.toHttpUrl().host.lowercase()
 
-        // Detectar servidor usando las convenciones
+        // Match server using domain conventions
         val matched = CONVENTIONS.firstOrNull { (_, aliases) ->
             aliases.any { it in host }
         }?.first
@@ -310,7 +358,7 @@ class AnimeLatinoHD :
     }
 
     override fun getFilterList(): AnimeFilterList = AnimeFilterList(
-        AnimeFilter.Header("La busqueda por texto ignora los filtros"),
+        AnimeFilter.Header("Text search ignores filters"),
         GenreFilter(),
         StateFilter(),
         TypeFilter(),
@@ -323,20 +371,22 @@ class AnimeLatinoHD :
 
         document.select("script").forEach { script ->
             if (script.data().contains("{\"props\":{\"pageProps\":")) {
-                val jObject = json.decodeFromString<JsonObject>(script.data())
-                val pageProps = jObject["props"]?.jsonObject?.get("pageProps")?.jsonObject
-                val data = pageProps?.get("data")?.jsonObject ?: return@forEach
+                try {
+                    val jObject = json.decodeFromString<JsonObject>(script.data())
+                    val pageProps = jObject["props"]?.jsonObject?.get("pageProps")?.jsonObject
+                    val data = pageProps?.get("data")?.jsonObject ?: return@forEach
 
-                val items = data["data"]?.jsonArray ?: return@forEach
-                items.forEach { item ->
-                    val animeItem = item.jsonObject
-                    val anime = SAnime.create().apply {
-                        setUrlWithoutDomain("anime/${animeItem["slug"]?.jsonPrimitive?.content ?: return@forEach}")
-                        thumbnail_url = "https://image.tmdb.org/t/p/w200${animeItem["poster"]?.jsonPrimitive?.content ?: ""}"
-                        title = animeItem["name"]?.jsonPrimitive?.content ?: ""
+                    val items = data["data"]?.jsonArray ?: return@forEach
+                    items.forEach { item ->
+                        val animeItem = item.jsonObject
+                        val anime = SAnime.create().apply {
+                            setUrlWithoutDomain("/anime/${animeItem["slug"]?.jsonPrimitive?.content ?: return@forEach}")
+                            thumbnail_url = "https://image.tmdb.org/t/p/w200${animeItem["poster"]?.jsonPrimitive?.content ?: ""}"
+                            title = animeItem["name"]?.jsonPrimitive?.content ?: ""
+                        }
+                        animeList.add(anime)
                     }
-                    animeList.add(anime)
-                }
+                } catch (_: Exception) { /* ignore */ }
             }
         }
 
@@ -363,54 +413,54 @@ class AnimeLatinoHD :
 
     private class GenreFilter :
         UriPartFilter(
-            "Géneros",
+            "Genres",
             arrayOf(
-                Pair("<Selecionar>", ""),
-                Pair("Acción", "accion"),
+                Pair("<Select>", ""),
+                Pair("Action", "accion"),
                 Pair("Aliens", "aliens"),
-                Pair("Artes Marciales", "artes-marciales"),
-                Pair("Aventura", "aventura"),
-                Pair("Ciencia Ficción", "ciencia-ficcion"),
-                Pair("Comedia", "comedia"),
+                Pair("Martial Arts", "artes-marciales"),
+                Pair("Adventure", "aventura"),
+                Pair("Sci-Fi", "ciencia-ficcion"),
+                Pair("Comedy", "comedia"),
                 Pair("Cyberpunk", "cyberpunk"),
-                Pair("Demonios", "demonios"),
-                Pair("Deportes", "deportes"),
+                Pair("Demons", "demonios"),
+                Pair("Sports", "deportes"),
                 Pair("Detectives", "detectives"),
                 Pair("Drama", "drama"),
                 Pair("Ecchi", "ecchi"),
-                Pair("Escolar", "escolar"),
-                Pair("Espacio", "espacio"),
-                Pair("Fantasía", "fantasia"),
+                Pair("School", "escolar"),
+                Pair("Space", "espacio"),
+                Pair("Fantasy", "fantasia"),
                 Pair("Gore", "gore"),
                 Pair("Harem", "harem"),
-                Pair("Histórico", "historico"),
+                Pair("Historical", "historico"),
                 Pair("Horror", "horror"),
                 Pair("Josei", "josei"),
-                Pair("Juegos", "juegos"),
-                Pair("Kodomo", "kodomo"),
-                Pair("Magia", "magia"),
-                Pair("Maho Shoujo", "maho-shoujo"),
+                Pair("Games", "juegos"),
+                Pair("Kids", "kodomo"),
+                Pair("Magic", "magia"),
+                Pair("Mahou Shoujo", "maho-shoujo"),
                 Pair("Mecha", "mecha"),
-                Pair("Militar", "militar"),
-                Pair("Misterio", "misterio"),
-                Pair("Musica", "musica"),
-                Pair("Parodia", "parodia"),
-                Pair("Policial", "policial"),
-                Pair("Psicológico", "psicologico"),
-                Pair("Recuentos De La Vida", "recuentos-de-la-vida"),
+                Pair("Military", "militar"),
+                Pair("Mystery", "misterio"),
+                Pair("Music", "musica"),
+                Pair("Parody", "parodia"),
+                Pair("Police", "policial"),
+                Pair("Psychological", "psicologico"),
+                Pair("Slice of Life", "recuentos-de-la-vida"),
                 Pair("Romance", "romance"),
-                Pair("Samurais", "samurais"),
+                Pair("Samurai", "samurais"),
                 Pair("Seinen", "seinen"),
                 Pair("Shoujo", "shoujo"),
                 Pair("Shoujo Ai", "shoujo-ai"),
                 Pair("Shounen", "shounen"),
                 Pair("Shounen Ai", "shounen-ai"),
-                Pair("Sobrenatural", "sobrenatural"),
+                Pair("Supernatural", "sobrenatural"),
                 Pair("Soft Hentai", "soft-hentai"),
-                Pair("Super Poderes", "super-poderes"),
-                Pair("Suspenso", "suspenso"),
+                Pair("Super Powers", "super-poderes"),
+                Pair("Thriller", "suspenso"),
                 Pair("Terror", "terror"),
-                Pair("Vampiros", "vampiros"),
+                Pair("Vampire", "vampiros"),
                 Pair("Yaoi", "yaoi"),
                 Pair("Yuri", "yuri"),
             ),
@@ -418,24 +468,24 @@ class AnimeLatinoHD :
 
     private class StateFilter :
         UriPartFilter(
-            "Estado",
+            "Status",
             arrayOf(
-                Pair("Todos", ""),
-                Pair("Finalizado", "0"),
-                Pair("En emisión", "1"),
+                Pair("All", ""),
+                Pair("Completed", "0"),
+                Pair("Ongoing", "1"),
             ),
         )
 
     private class TypeFilter :
         UriPartFilter(
-            "Tipo",
+            "Type",
             arrayOf(
-                Pair("Todos", ""),
-                Pair("Animes", "tv"),
-                Pair("Películas", "movie"),
-                Pair("Especiales", "special"),
-                Pair("OVAS", "ova"),
-                Pair("ONAS", "ona"),
+                Pair("All", ""),
+                Pair("TV", "tv"),
+                Pair("Movie", "movie"),
+                Pair("Special", "special"),
+                Pair("OVA", "ova"),
+                Pair("ONA", "ona"),
             ),
         )
 
