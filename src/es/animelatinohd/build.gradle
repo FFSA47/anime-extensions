@@ -10,4 +10,5 @@ dependencies {
     implementation(project(':lib:filemoonextractor'))
     implementation(project(':lib:voeextractor'))
     implementation(project(':lib:luluextractor'))
+    implementation(project(':lib:universalextractor'))
 }
