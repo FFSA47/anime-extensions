@@ -74,7 +74,7 @@ class AnimeLatinoHD :
         LuluExtractor(client, luluHeaders)
     }
 
-    // Universal extractor as fallback
+    // Universal extractor as fallback (uses WebView)
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
     // ====================== Popular (Directory) ======================
@@ -360,16 +360,6 @@ class AnimeLatinoHD :
             }
         }
 
-        // Last resort: try to get video from iframe or direct URL using universal extractor
-        if (videoList.isEmpty()) {
-            // Try to find iframe src
-            val iframeSrc = document.selectFirst("iframe")?.attr("src")
-            if (!iframeSrc.isNullOrBlank()) {
-                val videos = universalExtractor.videosFromUrl(iframeSrc, headers, prefix = "Universal")
-                videoList.addAll(videos)
-            }
-        }
-
         return videoList
     }
 
@@ -415,10 +405,22 @@ class AnimeLatinoHD :
         return null
     }
 
+    /**
+     * Tries to extract the actual video URL from the given bridge URL.
+     * For intermediate domain (website.animelatinohd.com), it uses the UniversalExtractor
+     * which loads the page with WebView and intercepts the real iframe.
+     */
     private fun extractVideosFromUrl(url: String, language: String, serverName: String): List<Video> {
         val host = url.toHttpUrl().host.lowercase()
+        val prefix = "$language $serverName"
 
-        // Map server name to extractor
+        // If it's the intermediate domain, use the UniversalExtractor (WebView)
+        if (host.contains("website.animelatinohd.com")) {
+            // The UniversalExtractor will load the page, run JavaScript, and intercept the real video URL
+            return universalExtractor.videosFromUrl(url, headers, prefix = prefix)
+        }
+
+        // Map server name to extractor for known domains
         val effective = when {
             serverName.equals("Gamma", ignoreCase = true) -> "voe"
             serverName.equals("Delta", ignoreCase = true) -> "filemoon"
@@ -437,14 +439,12 @@ class AnimeLatinoHD :
             }
         }
 
-        val prefix = "$language $serverName"
-
         val videos = when (effective) {
             "voe" -> voeExtractor.videosFromUrl(url, prefix = "$prefix:")
             "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "$prefix:", headers = headers)
             "lulu" -> luluExtractor.videosFromUrl(url, prefix = "$prefix:")
             else -> {
-                // Use universal extractor as fallback
+                // If no specific extractor detected, use UniversalExtractor
                 universalExtractor.videosFromUrl(url, headers, prefix = prefix)
             }
         }
