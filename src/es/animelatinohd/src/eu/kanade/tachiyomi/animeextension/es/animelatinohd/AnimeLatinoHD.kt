@@ -191,6 +191,7 @@ class AnimeLatinoHD :
         val document = response.asJsoup()
         val anime = SAnime.create()
 
+        // Try to parse from embedded JSON first
         document.select("script").forEach { script ->
             if (script.data().contains("{\"props\":{\"pageProps\":")) {
                 try {
@@ -208,11 +209,32 @@ class AnimeLatinoHD :
             }
         }
 
-        // Fallback from DOM if JSON fails
+        // Robust DOM fallback if JSON fails
         if (anime.title.isBlank()) {
-            anime.title = document.selectFirst("h1")?.text() ?: ""
-            anime.thumbnail_url = document.selectFirst("img[src*=\"tmdb\"]")?.attr("src") ?: ""
-            anime.description = document.selectFirst("p.description, .description, .sinopsis")?.text() ?: ""
+            // Title: try multiple selectors
+            anime.title = document.selectFirst("h1.fs-2, h1, .title, [class*=\"title\"]")?.text()?.trim() ?: "Unknown Title"
+
+            // Thumbnail: look for any image with tmdb or poster
+            anime.thumbnail_url = document.selectFirst("img[src*=\"tmdb\"], img[src*=\"poster\"], .poster img")?.attr("src") ?: ""
+
+            // Description: try common selectors
+            anime.description = document.selectFirst("p.description, .description, .sinopsis, [class*=\"sinopsis\"], [class*=\"description\"]")?.text()?.trim() ?: ""
+
+            // Genre: extract from tags/badges
+            anime.genre = document.select(".badge.bg-secondary, .genre, [class*=\"genre\"]").joinToString(", ") { it.text() }
+
+            // Status: look for "Estado" or status text
+            val statusText = document.selectFirst(".col:has(.text-muted:contains(Estado)) div.ms-2 div:last-child, [class*=\"status\"]")?.text()
+            anime.status = when {
+                statusText?.contains("Emisión", ignoreCase = true) == true -> SAnime.ONGOING
+                statusText?.contains("Finalizado", ignoreCase = true) == true -> SAnime.COMPLETED
+                else -> SAnime.UNKNOWN
+            }
+        }
+
+        // Ensure title is never empty
+        if (anime.title.isBlank()) {
+            anime.title = "Unknown Anime"
         }
 
         return anime
@@ -248,7 +270,7 @@ class AnimeLatinoHD :
             }
         }
 
-        // Fallback: parse from DOM links
+        // DOM fallback: extract all episode links
         if (episodeList.isEmpty()) {
             document.select("a[href^=\"/ver/\"]").forEach { link ->
                 val href = link.attr("href")
@@ -262,8 +284,10 @@ class AnimeLatinoHD :
                 }
                 episodeList.add(episode)
             }
-            episodeList.sortBy { it.episode_number }
         }
+
+        // Sort by episode number descending (latest first)
+        episodeList.sortByDescending { it.episode_number }
 
         return episodeList
     }
