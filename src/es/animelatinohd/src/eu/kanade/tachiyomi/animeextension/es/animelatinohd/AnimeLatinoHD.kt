@@ -19,6 +19,7 @@ import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -28,7 +29,6 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
-import java.util.regex.Pattern
 
 class AnimeLatinoHD :
     AnimeHttpSource(),
@@ -55,7 +55,6 @@ class AnimeLatinoHD :
         private const val PREF_LANGUAGE_DEFAULT = "[LAT]"
         private val LANGUAGE_LIST = arrayOf("[LAT]", "[ESP]", "[SUB]")
 
-        // Domain aliases for each extractor
         private val CONVENTIONS = listOf(
             "voe" to listOf("voe", "tubelessceliolymph", "simpulumlamerop", "urochsunloath", "nathanfromsubject", "yip.", "metagnathtuggers", "donaldlineelse"),
             "filemoon" to listOf("filemoon", "moonplayer", "moviesm4u", "files.im", "filemoon.sx"),
@@ -63,7 +62,6 @@ class AnimeLatinoHD :
         )
     }
 
-    // Library extractors with proper headers
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
     private val filemoonExtractor by lazy { FilemoonExtractor(client) }
     private val luluExtractor by lazy {
@@ -73,11 +71,9 @@ class AnimeLatinoHD :
             .build()
         LuluExtractor(client, luluHeaders)
     }
-
-    // Universal extractor as fallback (uses WebView)
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
-    // ====================== Popular (Directory) ======================
+    // ====================== Popular ======================
 
     override fun popularAnimeRequest(page: Int): Request {
         val url = if (page == 1) "$baseUrl/directorio" else "$baseUrl/directorio?page=$page"
@@ -138,7 +134,7 @@ class AnimeLatinoHD :
         return AnimesPage(animeList, nextPage)
     }
 
-    // ====================== Latest Episodes ======================
+    // ====================== Latest ======================
 
     override fun latestUpdatesRequest(page: Int): Request = GET(baseUrl)
 
@@ -193,7 +189,7 @@ class AnimeLatinoHD :
         return AnimesPage(animeMap.values.toList(), false)
     }
 
-    // ====================== Anime Details ======================
+    // ====================== Details ======================
 
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.asJsoup()
@@ -252,7 +248,7 @@ class AnimeLatinoHD :
         return anime
     }
 
-    // ====================== Episode List ======================
+    // ====================== Episodes ======================
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()
@@ -312,9 +308,15 @@ class AnimeLatinoHD :
                 try {
                     val jObject = json.decodeFromString<JsonObject>(script.data())
                     val pageProps = jObject["props"]?.jsonObject?.get("pageProps")?.jsonObject
-                    val data = pageProps?.get("data")?.jsonObject ?: return@forEach
+                    val data = pageProps?.get("data") ?: return@forEach
 
-                    val players = data["players"]?.jsonArray ?: return@forEach
+                    // FIX: Handle both JsonObject and JsonLiteral for data
+                    val dataObj = when (data) {
+                        is JsonObject -> data
+                        else -> return@forEach
+                    }
+
+                    val players = dataObj["players"]?.jsonArray ?: return@forEach
                     players.forEach { playerElement ->
                         val playerObj = playerElement.jsonObject
                         val language = when (playerObj["language"]?.jsonPrimitive?.content) {
@@ -332,7 +334,7 @@ class AnimeLatinoHD :
             }
         }
 
-        // If not found, search for "players" in any other script (Next.js embedded data)
+        // Fallback: search for "players" in any other script
         if (videoList.isEmpty()) {
             document.select("script").forEach { script ->
                 val data = script.data()
@@ -363,10 +365,6 @@ class AnimeLatinoHD :
         return videoList
     }
 
-    /**
-     * Extracts a JSON array from a string starting at the position of the opening bracket.
-     * Balances brackets to capture the complete array.
-     */
     private fun extractJsonArray(text: String, startPos: Int): String? {
         var start = text.indexOf('[', startPos)
         if (start == -1) return null
@@ -382,7 +380,6 @@ class AnimeLatinoHD :
                     }
                 }
                 '{' -> {
-                    // Skip nested objects by jumping to matching '}'
                     var objCount = 0
                     var j = i
                     while (j < text.length) {
@@ -406,37 +403,110 @@ class AnimeLatinoHD :
     }
 
     /**
-     * Tries to extract the actual video URL from the given bridge URL.
-     * For intermediate domain (website.animelatinohd.com), it uses the UniversalExtractor
-     * which loads the page with WebView and intercepts the real iframe.
+     * FIXED: Properly handles website.animelatinohd.com bridge pages
+     * by parsing the HTML to find the real iframe URL instead of
+     * relying on UniversalExtractor.
      */
     private fun extractVideosFromUrl(url: String, language: String, serverName: String): List<Video> {
-        val host = url.toHttpUrl().host.lowercase()
         val prefix = "$language $serverName"
 
-        // If it's the intermediate domain, use the UniversalExtractor (WebView)
-        if (host.contains("website.animelatinohd.com")) {
-            // The UniversalExtractor will load the page, run JavaScript, and intercept the real video URL
-            return universalExtractor.videosFromUrl(url, headers, prefix = prefix)
+        // If it's the intermediate domain, we need to resolve the real URL
+        if (url.contains("website.animelatinohd.com", ignoreCase = true)) {
+            return resolveBridgeUrl(url, prefix)
         }
 
-        // Map server name to extractor for known domains
-        val effective = when {
-            serverName.equals("Gamma", ignoreCase = true) -> "voe"
-            serverName.equals("Delta", ignoreCase = true) -> "filemoon"
-            serverName.equals("Epsilon", ignoreCase = true) -> "lulu"
-            else -> {
-                // Fallback: detect by domain
-                when {
-                    CONVENTIONS.any { it.second.any { alias -> alias in host } } -> {
-                        CONVENTIONS.first { (_, aliases) -> aliases.any { alias -> alias in host } }.first
+        // Direct URL - map to extractor
+        return extractWithExtractor(url, prefix)
+    }
+
+    /**
+     * Resolves a bridge URL from website.animelatinohd.com by:
+     * 1. Following any HTTP redirects
+     * 2. Parsing the HTML for iframe src
+     * 3. Extracting video from the resolved URL
+     */
+    private fun resolveBridgeUrl(url: String, prefix: String): List<Video> {
+        try {
+            val bridgeHeaders = headers.newBuilder()
+                .add("Referer", "$baseUrl/")
+                .add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
+                .build()
+
+            // Step 1: Fetch the bridge page (follow redirects automatically)
+            val request = GET(url, bridgeHeaders)
+            val response = client.newCall(request).execute()
+
+            // If it's a redirect, the response will have the final URL
+            val finalUrl = response.request.url.toString()
+
+            // If redirected to a non-bridge domain, extract directly
+            if (!finalUrl.contains("website.animelatinohd.com")) {
+                return extractWithExtractor(finalUrl, prefix)
+            }
+
+            // Step 2: Parse HTML for iframe
+            val document = response.asJsoup()
+
+            // Look for iframe with src
+            val iframeSrc = document.selectFirst("iframe[src]")?.attr("src")
+                ?: document.selectFirst("iframe[data-src]")?.attr("data-src")
+                ?: document.selectFirst("frame[src]")?.attr("src")
+
+            if (!iframeSrc.isNullOrBlank()) {
+                val resolvedIframe = when {
+                    iframeSrc.startsWith("http") -> iframeSrc
+                    iframeSrc.startsWith("//") -> "https:$iframeSrc"
+                    iframeSrc.startsWith("/") -> "https://${url.toHttpUrl().host}$iframeSrc"
+                    else -> "https://${url.toHttpUrl().host}/$iframeSrc"
+                }
+                return extractWithExtractor(resolvedIframe, prefix)
+            }
+
+            // Step 3: Look for JavaScript redirect or window.location
+            val scripts = document.select("script")
+            for (script in scripts) {
+                val scriptData = script.data()
+                // Common patterns: window.location.href = "..."; location.replace("...");
+                val locationRegex = """(?:window\.)?location(?:\.href)?\s*=\s*["']([^"']+)["']""".toRegex()
+                val replaceRegex = """location\.replace\(["']([^"']+)["']\)""".toRegex()
+
+                val redirectUrl = locationRegex.find(scriptData)?.groupValues?.get(1)
+                    ?: replaceRegex.find(scriptData)?.groupValues?.get(1)
+
+                if (!redirectUrl.isNullOrBlank()) {
+                    val resolvedRedirect = when {
+                        redirectUrl.startsWith("http") -> redirectUrl
+                        redirectUrl.startsWith("//") -> "https:$redirectUrl"
+                        redirectUrl.startsWith("/") -> "https://${url.toHttpUrl().host}$redirectUrl"
+                        else -> "https://${url.toHttpUrl().host}/$redirectUrl"
                     }
-                    host.contains("filemoon") -> "filemoon"
-                    host.contains("voe") -> "voe"
-                    host.contains("lulu") -> "lulu"
-                    else -> null
+                    return extractWithExtractor(resolvedRedirect, prefix)
                 }
             }
+
+            // Step 4: Fallback to UniversalExtractor if nothing found
+            return universalExtractor.videosFromUrl(url, headers, prefix = prefix)
+
+        } catch (e: Exception) {
+            // If anything fails, fallback to UniversalExtractor
+            return universalExtractor.videosFromUrl(url, headers, prefix = prefix)
+        }
+    }
+
+    /**
+     * Maps a URL to the correct extractor based on domain/server name.
+     */
+    private fun extractWithExtractor(url: String, prefix: String): List<Video> {
+        val host = url.toHttpUrl().host.lowercase()
+
+        val effective = when {
+            host.contains("filemoon") -> "filemoon"
+            host.contains("voe") -> "voe"
+            host.contains("lulu") -> "lulu"
+            CONVENTIONS.any { it.second.any { alias -> alias in host } } -> {
+                CONVENTIONS.first { (_, aliases) -> aliases.any { alias -> alias in host } }.first
+            }
+            else -> null
         }
 
         val videos = when (effective) {
@@ -444,12 +514,10 @@ class AnimeLatinoHD :
             "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "$prefix:", headers = headers)
             "lulu" -> luluExtractor.videosFromUrl(url, prefix = "$prefix:")
             else -> {
-                // If no specific extractor detected, use UniversalExtractor
                 universalExtractor.videosFromUrl(url, headers, prefix = prefix)
             }
         }
 
-        // If extractor returned empty, try universal extractor anyway
         return if (videos.isNotEmpty()) videos else universalExtractor.videosFromUrl(url, headers, prefix = prefix)
     }
 
