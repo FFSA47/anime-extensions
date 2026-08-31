@@ -56,10 +56,11 @@ class Animeneon : ParsedAnimeHttpSource() {
     }
 
     // ===============================
-    // 2. BÚSQUEDA
+    // 2. BÚSQUEDA (con filtros)
     // ===============================
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        return GET("$baseUrl/browse?q=$query&page=$page", headers)
+        val filterParams = filters.buildFilterParams()
+        return GET("$baseUrl/browse?q=$query&page=$page$filterParams", headers)
     }
 
     override fun searchAnimeParse(response: Response): List<SAnime> {
@@ -103,7 +104,7 @@ class Animeneon : ParsedAnimeHttpSource() {
     }
 
     // ===============================
-    // 4. LISTA DE EPISODIOS (orden descendente: más reciente primero)
+    // 4. LISTA DE EPISODIOS (descendente: más reciente primero)
     // ===============================
     override fun episodeListRequest(anime: SAnime): Request {
         return GET("$baseUrl${anime.url}", headers)
@@ -124,7 +125,7 @@ class Animeneon : ParsedAnimeHttpSource() {
                 this.name = name
                 episode_number = number.toFloat()
             }
-        }.sortedByDescending { it.episode_number }
+        }.sortedByDescending { it.episode_number }  // Más reciente primero
     }
 
     // ===============================
@@ -221,7 +222,6 @@ class Animeneon : ParsedAnimeHttpSource() {
             return nameParts.firstOrNull()?.trim()?.lowercase()
         }
 
-        // SOLO busca 1080p, 720p o 480p
         fun getResolutionFromVideo(video: Video): String? {
             val name = video.quality.lowercase()
             val patterns = listOf("1080p", "720p", "480p")
@@ -248,7 +248,24 @@ class Animeneon : ParsedAnimeHttpSource() {
     }
 
     // ===============================
-    // 6. PANTALLA DE PREFERENCIAS
+    // 6. FILTROS
+    // ===============================
+    override fun getFilterList(): AnimeFilterList {
+        return AnimeFilterList(
+            Filters.GenreFilter(),
+            Filters.ThemeFilter(),
+            Filters.DemographicFilter(),
+            Filters.YearFilter(),
+            Filters.SeasonFilter(),
+            Filters.FormatFilter(),
+            Filters.StatusFilter(),
+            Filters.LanguageFilter(),
+            Filters.OrderFilter()
+        )
+    }
+
+    // ===============================
+    // 7. PANTALLA DE PREFERENCIAS
     // ===============================
     override fun getPreferenceScreen(): android.preference.PreferenceScreen? {
         val screen = context.getSharedPreferences("source_$id", android.content.Context.MODE_PRIVATE)
@@ -323,6 +340,4 @@ class Animeneon : ParsedAnimeHttpSource() {
         val match = regex.find(url)
         return match?.groupValues?.get(1)?.toFloatOrNull()
     }
-
-    override fun getFilterList(): AnimeFilterList = AnimeFilterList()
 }
