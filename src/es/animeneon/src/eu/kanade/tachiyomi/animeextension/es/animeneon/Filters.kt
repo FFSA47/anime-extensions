@@ -6,7 +6,6 @@ import java.util.Calendar
 
 /**
  * Filtros para AnimeNeon.
- * Todos los filtros se muestran en la interfaz de usuario de Aniyomi.
  */
 object Filters {
 
@@ -241,69 +240,68 @@ object Filters {
 }
 
 /**
- * Función de extensión para construir la URL con los filtros aplicados.
- * Se usa en [Animeneon.searchAnimeRequest].
+ * Construye los parámetros de filtro para la URL.
  */
 fun AnimeFilterList.buildFilterParams(): String {
     val params = mutableListOf<String>()
 
-    // Géneros (múltiples) -> se pasan como genre=valor1,valor2
+    // Géneros
     val genreFilter = this.filterIsInstance<Filters.GenreFilter>().firstOrNull()
     val selectedGenres = genreFilter?.state?.filter { it.state }?.map { it.name } ?: emptyList()
     if (selectedGenres.isNotEmpty()) {
         params.add("genre=${selectedGenres.joinToString(",")}")
     }
 
-    // Temas (múltiples) -> theme=valor1,valor2
+    // Temas
     val themeFilter = this.filterIsInstance<Filters.ThemeFilter>().firstOrNull()
     val selectedThemes = themeFilter?.state?.filter { it.state }?.map { it.name } ?: emptyList()
     if (selectedThemes.isNotEmpty()) {
         params.add("theme=${selectedThemes.joinToString(",")}")
     }
 
-    // Demografía (múltiples) -> demographic=valor1,valor2
+    // Demografía
     val demographicFilter = this.filterIsInstance<Filters.DemographicFilter>().firstOrNull()
     val selectedDemographics = demographicFilter?.state?.filter { it.state }?.map { it.name } ?: emptyList()
     if (selectedDemographics.isNotEmpty()) {
         params.add("demographic=${selectedDemographics.joinToString(",")}")
     }
 
-    // Año (único)
+    // Año
     val yearFilter = this.filterIsInstance<Filters.YearFilter>().firstOrNull()
     val year = yearFilter?.selected?.takeIf { it != 0 }?.let { getYearOptions().getOrNull(it) }
     if (year != null && year != "Todos") {
         params.add("year=$year")
     }
 
-    // Temporada (único)
+    // Temporada
     val seasonFilter = this.filterIsInstance<Filters.SeasonFilter>().firstOrNull()
     val season = seasonFilter?.selected?.takeIf { it != 0 }?.let { getSeasonOptions().getOrNull(it) }
     if (season != null && season != "Todos") {
         params.add("season=$season")
     }
 
-    // Formato (único)
+    // Formato
     val formatFilter = this.filterIsInstance<Filters.FormatFilter>().firstOrNull()
     val format = formatFilter?.selected?.takeIf { it != 0 }?.let { getFormatOptions().getOrNull(it) }
     if (format != null && format != "Todos") {
         params.add("format=$format")
     }
 
-    // Estado (único)
+    // Estado
     val statusFilter = this.filterIsInstance<Filters.StatusFilter>().firstOrNull()
     val status = statusFilter?.selected?.takeIf { it != 0 }?.let { getStatusOptions().getOrNull(it) }
     if (status != null && status != "Todos") {
         params.add("status=$status")
     }
 
-    // Idioma (único)
+    // Idioma
     val languageFilter = this.filterIsInstance<Filters.LanguageFilter>().firstOrNull()
     val language = languageFilter?.selected?.takeIf { it != 0 }?.let { getLanguageOptions().getOrNull(it) }
     if (language != null && language != "Todos") {
         params.add("lang=$language")
     }
 
-    // Orden (único)
+    // Orden
     val orderFilter = this.filterIsInstance<Filters.OrderFilter>().firstOrNull()
     val order = orderFilter?.selected?.takeIf { it != 0 }?.let { getOrderOptions().getOrNull(it) }
     if (order != null) {
@@ -319,3 +317,11 @@ fun AnimeFilterList.buildFilterParams(): String {
 
     return if (params.isNotEmpty()) "&${params.joinToString("&")}" else ""
 }
+
+// Funciones auxiliares para obtener las opciones (necesarias para buildFilterParams)
+private fun getYearOptions(): Array<String> = Filters.YearFilter().values
+private fun getSeasonOptions(): Array<String> = Filters.SeasonFilter().values
+private fun getFormatOptions(): Array<String> = Filters.FormatFilter().values
+private fun getStatusOptions(): Array<String> = Filters.StatusFilter().values
+private fun getLanguageOptions(): Array<String> = Filters.LanguageFilter().values
+private fun getOrderOptions(): Array<String> = Filters.OrderFilter().values
