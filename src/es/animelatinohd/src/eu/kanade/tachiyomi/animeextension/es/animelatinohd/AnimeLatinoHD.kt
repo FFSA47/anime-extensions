@@ -62,7 +62,7 @@ class AnimeLatinoHD :
             "lulu" to listOf("luluvdo", "lulu", "lulustream"),
         )
 
-        // Cabeceras específicas para el bridge
+        // Cabeceras realistas para evitar el 403
         private val BRIDGE_HEADERS = Headers.Builder()
             .add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
             .add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7")
@@ -76,6 +76,31 @@ class AnimeLatinoHD :
             .add("Sec-Fetch-User", "?1")
             .add("Cache-Control", "max-age=0")
             .build()
+
+        // Cabeceras para el iframe real (con cookies y referer)
+        private fun getIframeHeaders(referer: String, cookies: Map<String, String>): Headers {
+            val builder = Headers.Builder()
+                .add("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36")
+                .add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")
+                .add("Accept-Language", "es-GT,es;q=0.7")
+                .add("Accept-Encoding", "gzip, deflate, br, zstd")
+                .add("Connection", "keep-alive")
+                .add("Upgrade-Insecure-Requests", "1")
+                .add("Sec-Fetch-Dest", "iframe")
+                .add("Sec-Fetch-Mode", "navigate")
+                .add("Sec-Fetch-Site", "cross-site")
+                .add("Sec-Fetch-User", "?1")
+                .add("Cache-Control", "max-age=0")
+                .add("Referer", referer)
+
+            // Añadir cookies si existen
+            if (cookies.isNotEmpty()) {
+                val cookieString = cookies.entries.joinToString("; ") { "${it.key}=${it.value}" }
+                builder.add("Cookie", cookieString)
+            }
+
+            return builder.build()
+        }
     }
 
     // Library extractors with proper headers
@@ -422,44 +447,66 @@ class AnimeLatinoHD :
 
     /**
      * Tries to extract the actual video URL from the given bridge URL.
-     * For intermediate domain (website.animelatinohd.com), it first tries to fetch
-     * the page with real browser headers and extract the iframe from the HTML.
-     * If that fails, it falls back to the UniversalExtractor (WebView).
+     * For intermediate domain (website.animelatinohd.com), it follows the full flow:
+     * 1. Get the bridge page to obtain the real iframe URL and cookies.
+     * 2. Request the iframe with the obtained cookies to get the video URL.
+     * If that fails, falls back to UniversalExtractor (WebView).
      */
     private fun extractVideosFromUrl(url: String, language: String, serverName: String): List<Video> {
         val host = url.toHttpUrl().host.lowercase()
         val prefix = "$language $serverName"
 
-        // If it's the intermediate domain, try to extract the real iframe
+        // If it's the intermediate domain, follow the full flow
         if (host.contains("website.animelatinohd.com")) {
             try {
-                // 1. Try fetching the page with real browser headers
-                val request = Request.Builder()
+                // Step 1: Get the bridge page to get the iframe URL and cookies
+                val bridgeRequest = Request.Builder()
                     .url(url)
                     .headers(BRIDGE_HEADERS)
                     .build()
-                val response = client.newCall(request).execute()
-                val document = response.asJsoup()
+                val bridgeResponse = client.newCall(bridgeRequest).execute()
+                val bridgeDocument = bridgeResponse.asJsoup()
 
-                // Look for an iframe with src
-                val iframe = document.selectFirst("iframe")
+                // Extract cookies from the response
+                val cookies = mutableMapOf<String, String>()
+                bridgeResponse.headers("Set-Cookie").forEach { cookie ->
+                    val parts = cookie.split(";")
+                    val firstPart = parts.firstOrNull()?.trim()
+                    if (!firstPart.isNullOrEmpty()) {
+                        val pair = firstPart.split("=", limit = 2)
+                        if (pair.size == 2) {
+                            cookies[pair[0]] = pair[1]
+                        }
+                    }
+                }
+
+                // Find the real iframe URL
+                val iframe = bridgeDocument.selectFirst("iframe")
                 val iframeSrc = iframe?.attr("src")
                 if (!iframeSrc.isNullOrBlank()) {
-                    // Recursive call with the iframe URL
+                    // Step 2: Request the iframe with cookies and referer
+                    val iframeHeaders = getIframeHeaders(url, cookies)
+                    val iframeRequest = Request.Builder()
+                        .url(iframeSrc)
+                        .headers(iframeHeaders)
+                        .build()
+                    val iframeResponse = client.newCall(iframeRequest).execute()
+                    val iframeHtml = iframeResponse.body?.string() ?: ""
+
+                    // Try to find the video URL (m3u8, mp4, etc.) in the iframe content
+                    val videoUrlRegex = Regex("""(https?://[^\s"']+\.(m3u8|mp4|webm)[^\s"']*)""")
+                    val match = videoUrlRegex.find(iframeHtml)
+                    if (match != null) {
+                        val realUrl = match.groupValues[1]
+                        // Recursive call with the real URL (which might be a direct video)
+                        return extractVideosFromUrl(realUrl, language, serverName)
+                    }
+
+                    // If no direct video found, try to parse the iframe as a Voe/Filemoon/Lulu page
+                    // by calling extractVideosFromUrl recursively with the iframe URL
                     return extractVideosFromUrl(iframeSrc, language, serverName)
                 }
-
-                // Look for video URL in scripts (e.g., m3u8, mp4)
-                val scriptData = document.select("script").joinToString("\n") { it.data() }
-                val videoUrlRegex = Regex("""(https?://[^\s"']+\.(m3u8|mp4|webm)[^\s"']*)""")
-                val match = videoUrlRegex.find(scriptData)
-                if (match != null) {
-                    val realUrl = match.groupValues[1]
-                    // Recursive call with the real URL (which might be a direct video)
-                    return extractVideosFromUrl(realUrl, language, serverName)
-                }
             } catch (e: Exception) {
-                // If fetching fails, fall back to UniversalExtractor
                 e.printStackTrace()
             }
 
