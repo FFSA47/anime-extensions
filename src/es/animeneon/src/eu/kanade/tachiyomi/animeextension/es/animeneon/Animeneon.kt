@@ -4,6 +4,7 @@ import aniyomi.lib.luluextractor.LuluExtractor
 import aniyomi.lib.mixdropextractor.MixDropExtractor
 import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
+import aniyomi.lib.universalextractor.UniversalExtractor
 import aniyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -17,21 +18,18 @@ import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Headers
 import okhttp3.Request
 import okhttp3.Response
-import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import kotlin.math.min
 
 class Animeneon : AnimeHttpSource() {
 
     override val name = "AnimeNeon"
     override val baseUrl = "https://animeneon.net"
-    override val id = 6957694006954649296L
+    override val id = 6957694006954649297L
     override val lang = "es"
-    override val supportsLatest = false
+    override val supportsLatest = true  // Ahora soporta últimos episodios
 
     private val preferences by getPreferencesLazy()
 
-    // Preferencias (camelCase)
     private val prefServerKey = "preferred_server"
     private val prefQualityKey = "preferred_quality"
 
@@ -43,44 +41,31 @@ class Animeneon : AnimeHttpSource() {
         "Voe",
         "Mixdrop",
         "Streamtape",
-        "Lulu"
+        "Lulu",
+        "Universal"
     )
 
     private val qualityList = arrayOf("1080p", "720p", "480p")
     private val qualityRegex = Regex("""(\d+)p""")
 
-    // ===============================
-    // EXTRACTORES (lazy)
-    // ===============================
+    // ====================== EXTRACTORES ======================
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
     private val mixdropExtractor by lazy { MixDropExtractor(client) }
     private val streamTapeExtractor by lazy { StreamTapeExtractor(client) }
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
     private val luluExtractor by lazy { LuluExtractor(client, headers) }
+    private val universalExtractor by lazy { UniversalExtractor(client) }
 
-    // ===============================
-    // CONVENCIONES DE SERVIDORES
-    // ===============================
-    private val conventions = listOf(
-        // Voe: múltiples dominios y alias
-        "voe" to listOf(
-            "voe", "voe.sx", "voe.com",
-            "tubelessceliolymph", "simpulumlamerop", "urochsunloath",
-            "nathanfromsubject", "yip.", "metagnathtuggers", "donaldlineelse"
-        ),
-        // Mixdrop
-        "mixdrop" to listOf("mixdrop", "mixdrop.co", "mixdrop.ag"),
-        // Streamtape
-        "streamtape" to listOf("streamtape", "streamtape.com", "stape", "stp"),
-        // Mp4upload
+    // Mapeo de servidores con alias (como en MonosChinos)
+    private val serverConventions = listOf(
         "mp4upload" to listOf("mp4upload", "mp4upload.com"),
-        // Lulu
+        "voe" to listOf("voe", "voe.com", "voe.sx"),
+        "mixdrop" to listOf("mixdrop", "mixdrop.co", "mixdrop.ag"),
+        "streamtape" to listOf("streamtape", "streamtape.com"),
         "lulu" to listOf("lulu", "lulustream", "lulustream.com", "luluvdo")
     )
 
-    // ===============================
-    // POPULAR
-    // ===============================
+    // ====================== POPULAR ======================
     override fun popularAnimeRequest(page: Int): Request {
         return GET("$baseUrl/nuevo-anime?page=$page", headers)
     }
@@ -95,9 +80,45 @@ class Animeneon : AnimeHttpSource() {
         return AnimesPage(animeList, hasNextPage)
     }
 
-    // ===============================
-    // BÚSQUEDA
-    // ===============================
+    // ====================== ÚLTIMOS EPISODIOS ======================
+    override fun latestUpdatesRequest(page: Int): Request {
+        return GET("$baseUrl/episodios?page=$page", headers)
+    }
+
+    override fun latestUpdatesParse(response: Response): AnimesPage {
+        val document = response.asJsoup()
+        // Los episodios recientes están en una cuadrícula con clase "grid grid-cols-2..."
+        val episodeItems = document.select("div.grid a[href^=/ver/]")
+
+        val animeList = episodeItems.mapNotNull { link ->
+            val episodeUrl = link.attr("abs:href")
+            // Extraer el slug del anime desde el enlace del episodio
+            // Ejemplo: /ver/bleach-sennen-kessen-hen-kashin-tan-1.5NMvA5gK
+            val animeSlug = episodeUrl.substringAfter("/ver/").substringBefore("-")
+            val animeUrl = "/anime/$animeSlug"
+
+            // Obtener título del anime desde el elemento
+            val titleElement = link.selectFirst(".text-\\[13px\\].font-semibold, .line-clamp-1")
+            val title = titleElement?.text()?.trim() ?: return@mapNotNull null
+
+            // Obtener imagen del episodio (la del anime)
+            val img = link.selectFirst("img")
+            val imageUrl = img?.attr("abs:src")
+
+            SAnime.create().apply {
+                url = animeUrl
+                this.title = title
+                thumbnail_url = imageUrl
+                // Añadir número de episodio en la descripción para referencia
+                description = "Último episodio disponible"
+            }
+        }.distinctBy { it.url } // Evitar duplicados
+
+        val hasNextPage = document.selectFirst("a[rel=next]") != null
+        return AnimesPage(animeList, hasNextPage)
+    }
+
+    // ====================== BÚSQUEDA ======================
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val filterParams = filters.buildFilterParams()
         return GET("$baseUrl/browse?q=$query&page=$page$filterParams", headers)
@@ -107,20 +128,7 @@ class Animeneon : AnimeHttpSource() {
         return popularAnimeParse(response)
     }
 
-    // ===============================
-    // LATEST (no usado)
-    // ===============================
-    override fun latestUpdatesRequest(page: Int): Request {
-        throw UnsupportedOperationException()
-    }
-
-    override fun latestUpdatesParse(response: Response): AnimesPage {
-        throw UnsupportedOperationException()
-    }
-
-    // ===============================
-    // DETALLE
-    // ===============================
+    // ====================== DETALLE ======================
     override fun animeDetailsRequest(anime: SAnime): Request {
         return GET("$baseUrl${anime.url}", headers)
     }
@@ -150,9 +158,7 @@ class Animeneon : AnimeHttpSource() {
         }
     }
 
-    // ===============================
-    // EPISODIOS
-    // ===============================
+    // ====================== EPISODIOS ======================
     override fun episodeListRequest(anime: SAnime): Request {
         return GET("$baseUrl${anime.url}", headers)
     }
@@ -172,9 +178,7 @@ class Animeneon : AnimeHttpSource() {
         }.sortedByDescending { it.episode_number }
     }
 
-    // ===============================
-    // VIDEOS (con detección inteligente)
-    // ===============================
+    // ====================== VIDEOS ======================
     override fun videoListRequest(episode: SEpisode): Request {
         return GET("$baseUrl${episode.url}", headers)
     }
@@ -188,91 +192,63 @@ class Animeneon : AnimeHttpSource() {
         val match = groupsRegex.find(scriptData)
         val groupsJson = match?.groupValues?.get(1) ?: return emptyList()
 
-        // Extraer cada objeto servidor
         val serverObjects = Regex("""\{[^{}]*\}""").findAll(groupsJson).map { it.value }.toList()
 
         val allVideos = mutableListOf<Video>()
 
         for (obj in serverObjects) {
             val link = Regex(""""link"\s*:\s*"([^"]+)"""").find(obj)?.groupValues?.get(1) ?: continue
-            val hostKey = Regex(""""hostKey"\s*:\s*"([^"]+)"""").find(obj)?.groupValues?.get(1)?.lowercase() ?: continue
-            val label = Regex(""""label"\s*:\s*"([^"]+)"""").find(obj)?.groupValues?.get(1) ?: hostKey
+            val hostKey = Regex(""""hostKey"\s*:\s*"([^"]+)"""").find(obj)?.groupValues?.get(1) ?: continue
 
-            // Detectar el extractor basado en el hostKey o el dominio del link
-            val matchedServer = detectServer(hostKey, link)
-
-            if (matchedServer != null) {
-                try {
-                    val videos = resolveVideos(link, matchedServer, label)
-                    allVideos.addAll(videos)
-                } catch (e: Exception) {
-                    // Ignorar errores
-                }
-            }
+            val videos = resolveServer(link, hostKey)
+            allVideos.addAll(videos)
         }
 
         return allVideos
     }
 
-    // ===============================
-    // DETECCIÓN DE SERVIDOR
-    // ===============================
-    private fun detectServer(hostKey: String, link: String): String? {
-        val source = link.lowercase()
+    // ====================== RESOLVER SERVIDOR ======================
+    private fun resolveServer(url: String, hostKey: String): List<Video> {
+        // Intentar coincidencia exacta o por alias
+        val matchedServer = serverConventions.firstOrNull { (_, aliases) ->
+            aliases.any { it.equals(hostKey, ignoreCase = true) }
+        }?.first
 
-        // Primero intentar por hostKey
-        for ((server, aliases) in conventions) {
-            if (aliases.any { it == hostKey }) {
-                return server
-            }
-        }
+        val fallbackServer = matchedServer ?: serverConventions.firstOrNull { (_, aliases) ->
+            aliases.any { url.contains(it, ignoreCase = true) }
+        }?.first
 
-        // Luego por dominio en el enlace
-        for ((server, aliases) in conventions) {
-            if (aliases.any { it in source }) {
-                return server
-            }
-        }
-
-        return null
-    }
-
-    // ===============================
-    // RESOLVER VIDEOS
-    // ===============================
-    private suspend fun resolveVideos(url: String, server: String, label: String): List<Video> {
-        return when (server) {
-            "voe" -> voeExtractor.videosFromUrl(url, prefix = "$label - ")
-            "mixdrop" -> mixdropExtractor.videosFromUrl(url, prefix = "$label - ", lang = "es")
+        return when (fallbackServer) {
+            "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, headers = Headers.headersOf(), prefix = "Mp4upload - ")
+            "voe" -> voeExtractor.videosFromUrl(url, prefix = "Voe - ")
+            "mixdrop" -> mixdropExtractor.videosFromUrl(url, prefix = "Mixdrop - ", lang = "es")
             "streamtape" -> {
-                val video = streamTapeExtractor.videoFromUrl(url, quality = label)
+                val video = streamTapeExtractor.videoFromUrl(url, quality = "Streamtape")
                 if (video != null) listOf(video) else emptyList()
             }
-            "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, Headers.headersOf(), prefix = "$label - ")
-            "lulu" -> luluExtractor.videosFromUrl(url, prefix = "$label - ")
-            else -> emptyList()
+            "lulu" -> luluExtractor.videosFromUrl(url, prefix = "Lulu - ")
+            else -> {
+                // Fallback: UniversalExtractor
+                universalExtractor.videosFromUrl(url, headers)
+            }
         }
     }
 
-    // ===============================
-    // ORDENAMIENTO DE VIDEOS
-    // ===============================
+    // ====================== ORDENAMIENTO DE VIDEOS ======================
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(prefQualityKey, defaultQuality) ?: defaultQuality
         val server = preferences.getString(prefServerKey, defaultServer) ?: defaultServer
 
         return this.sortedWith(
             compareBy(
-                { !it.quality.contains(server, ignoreCase = true) },  // Servidor preferido
-                { !it.quality.contains(quality, ignoreCase = true) }, // Calidad preferida
-                { qualityRegex.find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0 } // Resolución numérica
+                { !it.quality.contains(server, ignoreCase = true) },
+                { !it.quality.contains(quality, ignoreCase = true) },
+                { qualityRegex.find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0 }
             )
         )
     }
 
-    // ===============================
-    // FILTROS
-    // ===============================
+    // ====================== FILTROS ======================
     override fun getFilterList(): AnimeFilterList {
         return AnimeFilterList(
             Filters.GenreFilter(),
@@ -287,9 +263,38 @@ class Animeneon : AnimeHttpSource() {
         )
     }
 
-    // ===============================
-    // AUXILIARES
-    // ===============================
+    // ====================== PREFERENCIAS ======================
+    override fun setupPreferenceScreen(screen: androidx.preference.PreferenceScreen) {
+        androidx.preference.ListPreference(screen.context).apply {
+            key = prefServerKey
+            title = "Preferred Server"
+            summary = "Select the server to show first"
+            entries = serverList
+            entryValues = serverList
+            setDefaultValue(defaultServer)
+            value = preferences.getString(prefServerKey, defaultServer)
+            setOnPreferenceChangeListener { _, newValue ->
+                preferences.edit().putString(prefServerKey, newValue as String).apply()
+                true
+            }
+        }.also(screen::addPreference)
+
+        androidx.preference.ListPreference(screen.context).apply {
+            key = prefQualityKey
+            title = "Preferred Quality"
+            summary = "Select the quality to show first"
+            entries = qualityList
+            entryValues = qualityList
+            setDefaultValue(defaultQuality)
+            value = preferences.getString(prefQualityKey, defaultQuality)
+            setOnPreferenceChangeListener { _, newValue ->
+                preferences.edit().putString(prefQualityKey, newValue as String).apply()
+                true
+            }
+        }.also(screen::addPreference)
+    }
+
+    // ====================== AUXILIARES ======================
     private fun parseAnimeCard(element: Element): SAnime? {
         val href = element.attr("href")
         if (!href.startsWith("/anime/")) return null
@@ -313,4 +318,4 @@ class Animeneon : AnimeHttpSource() {
         val match = regex.find(url)
         return match?.groupValues?.get(1)?.toFloatOrNull()
     }
-                              }
+                                }
