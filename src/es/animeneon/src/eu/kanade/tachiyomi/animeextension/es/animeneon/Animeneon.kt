@@ -64,9 +64,9 @@ class Animeneon :
     private val serverConventions = listOf(
         "mp4upload" to listOf("mp4upload", "mp4upload.com"),
         "voe" to listOf("voe", "voe.com", "voe.sx"),
-        "mixdrop" to listOf("mixdrop", "mixdrop.co", "mixdrop.ag"),
+        "mixdrop" to listOf("mixdrop", "mixdrop.co", "mixdrop.ag", "mixdrop.top"),
         "streamtape" to listOf("streamtape", "streamtape.com"),
-        "lulu" to listOf("lulu", "lulustream", "lulustream.com", "luluvdo")
+        "lulu" to listOf("lulu", "lulustream", "lulustream.com", "luluvdo", "luluvdoo.com")
     )
 
     // ====================== POPULAR ======================
@@ -95,7 +95,6 @@ class Animeneon :
 
         val animeList = episodeItems.mapNotNull { link ->
             val episodeUrl = link.attr("abs:href")
-            // Extraer slug del anime: eliminar "-numero.codigo" del final
             val episodeSlug = episodeUrl.substringAfter("/ver/")
             val animeSlug = episodeSlug.replace(Regex("-\\d+\\.[A-Za-z0-9]+$"), "")
             val animeUrl = "/anime/$animeSlug"
@@ -188,27 +187,26 @@ class Animeneon :
         val script = document.select("script:containsData(groups)").firstOrNull() ?: return emptyList()
         val scriptData = script.data()
 
-        // Extraer el array groups
-        val groupsRegex = Regex("""groups\s*:\s*(\[[\s\S]*?\])\s*[,}]""")
+        // Extraer el array "groups" completo
+        val groupsRegex = Regex("""groups\s*:\s*(\[[\s\S]*?\](?=\s*[,}]))""")
         val groupsMatch = groupsRegex.find(scriptData)
         val groupsJson = groupsMatch?.groupValues?.get(1) ?: return emptyList()
 
-        // Buscar "servers": [ ... ] dentro del groupsJson
-        val serversRegex = Regex(""""servers"\s*:\s*\[([\s\S]*?)\]""")
+        // Extraer cada array "servers" dentro de "groups"
+        val serverObjects = mutableListOf<String>()
+        val serversRegex = Regex("""servers\s*:\s*\[([\s\S]*?)\]""")
         val serversMatches = serversRegex.findAll(groupsJson)
 
-        val serverObjects = mutableListOf<String>()
         for (match in serversMatches) {
             val serversArray = match.groupValues[1]
-            // Extraer cada objeto dentro del array (objetos delimitados por llaves)
             val objectRegex = Regex("""\{[^{}]*\}""")
             serverObjects.addAll(objectRegex.findAll(serversArray).map { it.value }.toList())
         }
 
         val allVideos = mutableListOf<Video>()
         for (obj in serverObjects) {
-            val link = Regex(""""link"\s*:\s*"([^"]+)"""").find(obj)?.groupValues?.get(1) ?: continue
-            val hostKey = Regex(""""hostKey"\s*:\s*"([^"]+)"""").find(obj)?.groupValues?.get(1) ?: continue
+            val link = Regex("""link\s*:\s*"([^"]+)"""").find(obj)?.groupValues?.get(1) ?: continue
+            val hostKey = Regex("""hostKey\s*:\s*"([^"]+)"""").find(obj)?.groupValues?.get(1) ?: continue
             val videos = resolveServer(link, hostKey)
             allVideos.addAll(videos)
         }
