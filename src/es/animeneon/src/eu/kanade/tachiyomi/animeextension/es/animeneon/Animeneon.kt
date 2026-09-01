@@ -1,13 +1,13 @@
 package eu.kanade.tachiyomi.animeextension.es.animeneon
 
+import androidx.preference.ListPreference
+import androidx.preference.PreferenceScreen
 import aniyomi.lib.luluextractor.LuluExtractor
 import aniyomi.lib.mixdropextractor.MixDropExtractor
 import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
 import aniyomi.lib.universalextractor.UniversalExtractor
 import aniyomi.lib.voeextractor.VoeExtractor
-import androidx.preference.ListPreference
-import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -18,13 +18,13 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
-import okhttp3.Request
-import okhttp3.Response
-import org.jsoup.nodes.Element
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.Request
+import okhttp3.Response
+import org.jsoup.nodes.Element
 
 class Animeneon :
     AnimeHttpSource(),
@@ -117,12 +117,10 @@ class Animeneon :
 
     // ====================== POPULAR ======================
 
-    override fun popularAnimeRequest(page: Int): Request {
-        return GET(
-            "$baseUrl/nuevo-anime?page=$page",
-            headers,
-        )
-    }
+    override fun popularAnimeRequest(page: Int): Request = GET(
+        "$baseUrl/nuevo-anime?page=$page",
+        headers,
+    )
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val document = response.asJsoup()
@@ -147,12 +145,10 @@ class Animeneon :
 
     // ====================== ÚLTIMOS EPISODIOS ======================
 
-    override fun latestUpdatesRequest(page: Int): Request {
-        return GET(
-            "$baseUrl/episodios?page=$page",
-            headers,
-        )
-    }
+    override fun latestUpdatesRequest(page: Int): Request = GET(
+        "$baseUrl/episodios?page=$page",
+        headers,
+    )
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val document = response.asJsoup()
@@ -223,20 +219,16 @@ class Animeneon :
 
     override fun searchAnimeParse(
         response: Response,
-    ): AnimesPage {
-        return popularAnimeParse(response)
-    }
+    ): AnimesPage = popularAnimeParse(response)
 
     // ====================== DETALLE ======================
 
     override fun animeDetailsRequest(
         anime: SAnime,
-    ): Request {
-        return GET(
-            "$baseUrl${anime.url}",
-            headers,
-        )
-    }
+    ): Request = GET(
+        "$baseUrl${anime.url}",
+        headers,
+    )
 
     override fun animeDetailsParse(
         response: Response,
@@ -244,7 +236,6 @@ class Animeneon :
         val document = response.asJsoup()
 
         return SAnime.create().apply {
-
             title =
                 document.selectFirst(".a2-title")
                     ?.text()
@@ -313,17 +304,14 @@ class Animeneon :
 
     override fun episodeListRequest(
         anime: SAnime,
-    ): Request {
-        return GET(
-            "$baseUrl${anime.url}",
-            headers,
-        )
-    }
+    ): Request = GET(
+        "$baseUrl${anime.url}",
+        headers,
+    )
 
     override fun episodeListParse(
         response: Response,
     ): List<SEpisode> {
-
         val document = response.asJsoup()
 
         val script = document
@@ -344,7 +332,6 @@ class Animeneon :
                 ?: return emptyList()
 
         return try {
-
             val jsonObject =
                 json.parseToJsonElement(
                     jsonString,
@@ -392,9 +379,7 @@ class Animeneon :
                 .sortedByDescending {
                     it.episode_number
                 }
-
         } catch (e: Exception) {
-
             // Fallback HTML
 
             val episodeElements = document.select(
@@ -433,17 +418,14 @@ class Animeneon :
 
     override fun videoListRequest(
         episode: SEpisode,
-    ): Request {
-        return GET(
-            "$baseUrl${episode.url}",
-            headers,
-        )
-    }
+    ): Request = GET(
+        "$baseUrl${episode.url}",
+        headers,
+    )
 
     override fun videoListParse(
         response: Response,
     ): List<Video> {
-
         val document = response.asJsoup()
 
         val script = document
@@ -483,7 +465,6 @@ class Animeneon :
         var searchPosition = 0
 
         while (searchPosition < groupsArray.length) {
-
             val serversStart = findKey(
                 groupsArray,
                 "servers",
@@ -517,7 +498,6 @@ class Animeneon :
                 extractObjects(serversArray)
 
             for (serverObj in serverObjects) {
-
                 val link = extractStringProperty(
                     serverObj,
                     "link",
@@ -556,7 +536,7 @@ class Animeneon :
 
             searchPosition =
                 serversStart +
-                    serversArray.length
+                serversArray.length
         }
 
         return allVideos
@@ -568,7 +548,6 @@ class Animeneon :
         url: String,
         hostKey: String,
     ): List<Video> {
-
         val normalizedHost =
             hostKey.lowercase()
 
@@ -591,8 +570,7 @@ class Animeneon :
 
         val fallbackServer =
             matchedServer
-                ?: serverConventions.firstOrNull {
-                    (_, aliases) ->
+                ?: serverConventions.firstOrNull { (_, aliases) ->
 
                     aliases.any { alias ->
 
@@ -604,9 +582,7 @@ class Animeneon :
                 }?.first
 
         return when (fallbackServer) {
-
             "mp4upload" -> {
-
                 /*
                  * IMPORTANTE:
                  * Antes se utilizaba Headers.headersOf(),
@@ -622,7 +598,6 @@ class Animeneon :
             }
 
             "voe" -> {
-
                 voeExtractor.videosFromUrl(
                     url,
                     prefix = "Voe - ",
@@ -630,7 +605,6 @@ class Animeneon :
             }
 
             "mixdrop" -> {
-
                 mixdropExtractor.videosFromUrl(
                     url,
                     prefix = "Mixdrop - ",
@@ -639,7 +613,6 @@ class Animeneon :
             }
 
             "streamtape" -> {
-
                 val video =
                     streamTapeExtractor.videoFromUrl(
                         url,
@@ -654,7 +627,6 @@ class Animeneon :
             }
 
             "lulu" -> {
-
                 luluExtractor.videosFromUrl(
                     url,
                     prefix = "Lulu - ",
@@ -662,7 +634,6 @@ class Animeneon :
             }
 
             else -> {
-
                 /*
                  * Si AnimeNeon añade un servidor nuevo,
                  * intentamos UniversalExtractor.
@@ -693,7 +664,6 @@ class Animeneon :
         text: String,
         key: String,
     ): String? {
-
         val position = findKey(
             text,
             key,
@@ -719,7 +689,6 @@ class Animeneon :
         key: String,
         start: Int,
     ): Int {
-
         val pattern = Regex(
             """(?:"|')?${
                 Regex.escape(key)
@@ -742,7 +711,6 @@ class Animeneon :
         text: String,
         keyPosition: Int,
     ): String? {
-
         val colon = text.indexOf(
             ':',
             keyPosition,
@@ -790,18 +758,15 @@ class Animeneon :
         openChar: Char,
         closeChar: Char,
     ): Int? {
-
         var depth = 0
         var inString = false
         var stringChar = '\u0000'
         var escaped = false
 
         for (i in start until text.length) {
-
             val char = text[i]
 
             if (inString) {
-
                 if (escaped) {
                     escaped = false
                     continue
@@ -831,7 +796,6 @@ class Animeneon :
             if (char == openChar) {
                 depth++
             } else if (char == closeChar) {
-
                 depth--
 
                 if (depth == 0) {
@@ -852,13 +816,11 @@ class Animeneon :
     private fun extractObjects(
         arrayText: String,
     ): List<String> {
-
         val objects = mutableListOf<String>()
 
         var position = 0
 
         while (position < arrayText.length) {
-
             val start =
                 arrayText.indexOf(
                     '{',
@@ -904,7 +866,6 @@ class Animeneon :
         text: String,
         key: String,
     ): String? {
-
         val regex = Regex(
             """(?:"|')?${Regex.escape(key)}(?:"|')?\s*:\s*["']([^"']+)["']""",
         )
@@ -918,7 +879,6 @@ class Animeneon :
     // ====================== ORDENAMIENTO ======================
 
     override fun List<Video>.sort(): List<Video> {
-
         val quality =
             preferences.getString(
                 prefQualityKey,
@@ -959,28 +919,24 @@ class Animeneon :
 
     // ====================== FILTROS ======================
 
-    override fun getFilterList(): AnimeFilterList {
-        return AnimeFilterList(
-            Filters.GenreFilter(),
-            Filters.ThemeFilter(),
-            Filters.DemographicFilter(),
-            Filters.YearFilter(),
-            Filters.SeasonFilter(),
-            Filters.FormatFilter(),
-            Filters.StatusFilter(),
-            Filters.LanguageFilter(),
-            Filters.OrderFilter(),
-        )
-    }
+    override fun getFilterList(): AnimeFilterList = AnimeFilterList(
+        Filters.GenreFilter(),
+        Filters.ThemeFilter(),
+        Filters.DemographicFilter(),
+        Filters.YearFilter(),
+        Filters.SeasonFilter(),
+        Filters.FormatFilter(),
+        Filters.StatusFilter(),
+        Filters.LanguageFilter(),
+        Filters.OrderFilter(),
+    )
 
     // ====================== PREFERENCIAS ======================
 
     override fun setupPreferenceScreen(
         screen: PreferenceScreen,
     ) {
-
         ListPreference(screen.context).apply {
-
             key = prefServerKey
 
             title = "Preferred Server"
@@ -1020,7 +976,6 @@ class Animeneon :
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
-
             key = prefQualityKey
 
             title = "Preferred Quality"
@@ -1065,7 +1020,6 @@ class Animeneon :
     private fun parseAnimeCard(
         element: Element,
     ): SAnime? {
-
         val href = element.attr("href")
 
         if (!href.startsWith("/anime/")) {
@@ -1101,7 +1055,6 @@ class Animeneon :
     private fun extractEpisodeNumber(
         url: String,
     ): Float? {
-
         val regex =
             Regex("-(\\d+)\\.")
 
