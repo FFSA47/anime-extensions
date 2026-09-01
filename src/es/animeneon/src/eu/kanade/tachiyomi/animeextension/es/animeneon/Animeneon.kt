@@ -6,6 +6,9 @@ import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
 import aniyomi.lib.universalextractor.UniversalExtractor
 import aniyomi.lib.voeextractor.VoeExtractor
+import androidx.preference.ListPreference
+import androidx.preference.PreferenceScreen
+import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
@@ -20,13 +23,15 @@ import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
 
-class Animeneon : AnimeHttpSource() {
+class Animeneon :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {  // <-- Implementamos ConfigurableAnimeSource
 
     override val name = "AnimeNeon"
     override val baseUrl = "https://animeneon.net"
     override val id = 6957694006954649297L
     override val lang = "es"
-    override val supportsLatest = true  // Ahora soporta últimos episodios
+    override val supportsLatest = true
 
     private val preferences by getPreferencesLazy()
 
@@ -56,7 +61,6 @@ class Animeneon : AnimeHttpSource() {
     private val luluExtractor by lazy { LuluExtractor(client, headers) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
-    // Mapeo de servidores con alias (como en MonosChinos)
     private val serverConventions = listOf(
         "mp4upload" to listOf("mp4upload", "mp4upload.com"),
         "voe" to listOf("voe", "voe.com", "voe.sx"),
@@ -87,21 +91,16 @@ class Animeneon : AnimeHttpSource() {
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val document = response.asJsoup()
-        // Los episodios recientes están en una cuadrícula con clase "grid grid-cols-2..."
         val episodeItems = document.select("div.grid a[href^=/ver/]")
 
         val animeList = episodeItems.mapNotNull { link ->
             val episodeUrl = link.attr("abs:href")
-            // Extraer el slug del anime desde el enlace del episodio
-            // Ejemplo: /ver/bleach-sennen-kessen-hen-kashin-tan-1.5NMvA5gK
             val animeSlug = episodeUrl.substringAfter("/ver/").substringBefore("-")
             val animeUrl = "/anime/$animeSlug"
 
-            // Obtener título del anime desde el elemento
             val titleElement = link.selectFirst(".text-\\[13px\\].font-semibold, .line-clamp-1")
             val title = titleElement?.text()?.trim() ?: return@mapNotNull null
 
-            // Obtener imagen del episodio (la del anime)
             val img = link.selectFirst("img")
             val imageUrl = img?.attr("abs:src")
 
@@ -109,10 +108,9 @@ class Animeneon : AnimeHttpSource() {
                 url = animeUrl
                 this.title = title
                 thumbnail_url = imageUrl
-                // Añadir número de episodio en la descripción para referencia
                 description = "Último episodio disponible"
             }
-        }.distinctBy { it.url } // Evitar duplicados
+        }.distinctBy { it.url }
 
         val hasNextPage = document.selectFirst("a[rel=next]") != null
         return AnimesPage(animeList, hasNextPage)
@@ -209,7 +207,6 @@ class Animeneon : AnimeHttpSource() {
 
     // ====================== RESOLVER SERVIDOR ======================
     private fun resolveServer(url: String, hostKey: String): List<Video> {
-        // Intentar coincidencia exacta o por alias
         val matchedServer = serverConventions.firstOrNull { (_, aliases) ->
             aliases.any { it.equals(hostKey, ignoreCase = true) }
         }?.first
@@ -228,13 +225,12 @@ class Animeneon : AnimeHttpSource() {
             }
             "lulu" -> luluExtractor.videosFromUrl(url, prefix = "Lulu - ")
             else -> {
-                // Fallback: UniversalExtractor
                 universalExtractor.videosFromUrl(url, headers)
             }
         }
     }
 
-    // ====================== ORDENAMIENTO DE VIDEOS ======================
+    // ====================== ORDENAMIENTO ======================
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(prefQualityKey, defaultQuality) ?: defaultQuality
         val server = preferences.getString(prefServerKey, defaultServer) ?: defaultServer
@@ -264,8 +260,8 @@ class Animeneon : AnimeHttpSource() {
     }
 
     // ====================== PREFERENCIAS ======================
-    override fun setupPreferenceScreen(screen: androidx.preference.PreferenceScreen) {
-        androidx.preference.ListPreference(screen.context).apply {
+    override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        ListPreference(screen.context).apply {
             key = prefServerKey
             title = "Preferred Server"
             summary = "Select the server to show first"
@@ -279,7 +275,7 @@ class Animeneon : AnimeHttpSource() {
             }
         }.also(screen::addPreference)
 
-        androidx.preference.ListPreference(screen.context).apply {
+        ListPreference(screen.context).apply {
             key = prefQualityKey
             title = "Preferred Quality"
             summary = "Select the quality to show first"
@@ -318,4 +314,4 @@ class Animeneon : AnimeHttpSource() {
         val match = regex.find(url)
         return match?.groupValues?.get(1)?.toFloatOrNull()
     }
-                                }
+}
