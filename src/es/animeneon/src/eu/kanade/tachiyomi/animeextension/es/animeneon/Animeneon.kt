@@ -17,31 +17,13 @@ import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import android.content.SharedPreferences
-import android.preference.PreferenceScreen
-import android.preference.ListPreference
-import eu.kanade.tachiyomi.util.preference.getPref
-import eu.kanade.tachiyomi.util.preference.setPref
 
 class Animeneon : ParsedAnimeHttpSource() {
 
     override val name = "AnimeNeon"
     override val baseUrl = "https://animeneon.net"
     override val lang = "es"
-    override val supportsLatest = false  // No usamos "Últimos episodios"
-
-    // ===============================
-    // PREFERENCIAS
-    // ===============================
-    private val preferences: SharedPreferences by lazy {
-        applicationContext.getSharedPreferences("source_$id", android.content.Context.MODE_PRIVATE)
-    }
-
-    private val serverPrefKey = "preferred_server"
-    private val qualityPrefKey = "preferred_quality"
-
-    private fun getPreferredServer(): String? = preferences.getString(serverPrefKey, null)
-    private fun getPreferredQuality(): String? = preferences.getString(qualityPrefKey, null)
+    override val supportsLatest = false
 
     // ===============================
     // 1. POPULAR
@@ -56,7 +38,7 @@ class Animeneon : ParsedAnimeHttpSource() {
         return parseAnimeCard(element) ?: SAnime.create()
     }
 
-    override fun popularAnimeNextPageSelector(): String? = "a[rel=next]"
+    override fun popularAnimeNextPageSelector(): String? = null
 
     // ===============================
     // 2. BÚSQUEDA (con filtros)
@@ -72,7 +54,7 @@ class Animeneon : ParsedAnimeHttpSource() {
         return parseAnimeCard(element) ?: SAnime.create()
     }
 
-    override fun searchAnimeNextPageSelector(): String? = popularAnimeNextPageSelector()
+    override fun searchAnimeNextPageSelector(): String? = null
 
     // ===============================
     // 3. LATEST (no usado)
@@ -110,7 +92,7 @@ class Animeneon : ParsedAnimeHttpSource() {
         anime.status = when {
             statusText?.contains("Finalizado", ignoreCase = true) == true -> SAnime.COMPLETED
             statusText?.contains("Emisión", ignoreCase = true) == true -> SAnime.ONGOING
-            statusText?.contains("Próximo", ignoreCase = true) == true -> SAnime.UPCOMING
+            statusText?.contains("Próximo", ignoreCase = true) == true -> SAnime.NOT_YET_RELEASED
             else -> SAnime.UNKNOWN
         }
 
@@ -137,7 +119,6 @@ class Animeneon : ParsedAnimeHttpSource() {
         }
     }
 
-    // Sobrescribimos para ordenar descendentemente
     override fun episodeListParse(response: Response): List<SEpisode> {
         val episodes = super.episodeListParse(response)
         return episodes.sortedByDescending { it.episode_number }
@@ -237,38 +218,9 @@ class Animeneon : ParsedAnimeHttpSource() {
         }
 
         // ============================================
-        // ORDENAR según preferencias del usuario
+        // ORDEN: sin preferencias (todas las calidades y servidores)
         // ============================================
-        val preferredServer = getPreferredServer()
-        val preferredQuality = getPreferredQuality()
-
-        fun getServerFromVideo(video: Video): String? {
-            val nameParts = video.quality.split(" - ")
-            return nameParts.firstOrNull()?.trim()?.lowercase()
-        }
-
-        fun getResolutionFromVideo(video: Video): String? {
-            val name = video.quality.lowercase()
-            val patterns = listOf("1080p", "720p", "480p")
-            for (pattern in patterns) {
-                if (name.contains(pattern)) {
-                    return pattern
-                }
-            }
-            return null
-        }
-
-        return allVideos.sortedWith(compareBy<Video> { video ->
-            val server = getServerFromVideo(video)
-            val matchesServer = preferredServer != null && server == preferredServer.lowercase()
-            if (matchesServer) 0 else 1
-        }.thenBy { video ->
-            val res = getResolutionFromVideo(video)
-            val matchesQuality = preferredQuality != null && res == preferredQuality.lowercase()
-            if (matchesQuality) 0 else 1
-        }.thenBy { video ->
-            video.quality
-        })
+        return allVideos
     }
 
     // ===============================
@@ -286,48 +238,6 @@ class Animeneon : ParsedAnimeHttpSource() {
             Filters.LanguageFilter(),
             Filters.OrderFilter()
         )
-    }
-
-    // ===============================
-    // 8. PANTALLA DE PREFERENCIAS
-    // ===============================
-    override fun getPreferenceScreen(): PreferenceScreen? {
-        val screen = PreferenceScreen(applicationContext)
-        val prefs = applicationContext.getSharedPreferences("source_$id", android.content.Context.MODE_PRIVATE)
-
-        // Servidor
-        val serverPref = ListPreference(applicationContext).apply {
-            key = serverPrefKey
-            title = "Preferred Server"
-            summary = "Select the server to show first (all servers will still appear)"
-            entries = arrayOf("Default", "Mp4upload", "Voe", "Mixdrop", "Streamtape", "Lulu")
-            entryValues = arrayOf("", "mp4upload.com", "voe.com", "mixdrop.co", "streamtape.com", "lulustream.com")
-            setDefaultValue("")
-            value = prefs.getString(key, "")
-            setOnPreferenceChangeListener { _, newValue ->
-                prefs.setPref(key, newValue as String)
-                true
-            }
-        }
-        screen.addPreference(serverPref)
-
-        // Calidad
-        val qualityPref = ListPreference(applicationContext).apply {
-            key = qualityPrefKey
-            title = "Preferred Quality"
-            summary = "Select the quality to show first (all qualities will still appear)"
-            entries = arrayOf("Default", "1080p", "720p", "480p")
-            entryValues = arrayOf("", "1080p", "720p", "480p")
-            setDefaultValue("")
-            value = prefs.getString(key, "")
-            setOnPreferenceChangeListener { _, newValue ->
-                prefs.setPref(key, newValue as String)
-                true
-            }
-        }
-        screen.addPreference(qualityPref)
-
-        return screen
     }
 
     // ===============================
