@@ -12,14 +12,13 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.preference.getPref
-import eu.kanade.tachiyomi.util.preference.setPref
 import okhttp3.Headers
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import android.content.SharedPreferences
+import android.content.Context
 
 class Animeneon : ParsedAnimeHttpSource() {
 
@@ -29,10 +28,11 @@ class Animeneon : ParsedAnimeHttpSource() {
     override val supportsLatest = false
 
     // ===============================
-    // PREFERENCIAS
+    // PREFERENCIAS (usando applicationContext)
     // ===============================
     private val preferences: SharedPreferences by lazy {
-        context.getSharedPreferences("source_$id", android.content.Context.MODE_PRIVATE)
+        // applicationContext está disponible en la clase base Source
+        applicationContext.getSharedPreferences("source_$id", Context.MODE_PRIVATE)
     }
 
     private val serverPrefKey = "preferred_server"
