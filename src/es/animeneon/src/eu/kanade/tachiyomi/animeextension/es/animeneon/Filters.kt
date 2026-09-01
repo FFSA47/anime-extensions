@@ -13,230 +13,223 @@ object Filters {
     // 1. GÉNEROS (selección múltiple)
     // ============================================
     open class GenreCheckBox(name: String) : AnimeFilter.CheckBox(name)
-    class GenreFilter : AnimeFilter.Group<GenreCheckBox>(
-        "Géneros",
-        getGenreList()
-    )
+    class GenreFilter :
+        AnimeFilter.Group<GenreCheckBox>(
+            "Géneros",
+            getGenreList(),
+        )
 
     // ============================================
     // 2. TEMAS (selección múltiple)
     // ============================================
     open class ThemeCheckBox(name: String) : AnimeFilter.CheckBox(name)
-    class ThemeFilter : AnimeFilter.Group<ThemeCheckBox>(
-        "Temas",
-        getThemeList()
-    )
+    class ThemeFilter :
+        AnimeFilter.Group<ThemeCheckBox>(
+            "Temas",
+            getThemeList(),
+        )
 
     // ============================================
     // 3. DEMOGRAFÍA (selección múltiple)
     // ============================================
     open class DemographicCheckBox(name: String) : AnimeFilter.CheckBox(name)
-    class DemographicFilter : AnimeFilter.Group<DemographicCheckBox>(
-        "Demografía",
-        getDemographicList()
-    )
+    class DemographicFilter :
+        AnimeFilter.Group<DemographicCheckBox>(
+            "Demografía",
+            getDemographicList(),
+        )
 
     // ============================================
     // 4. AÑO (selección única)
     // ============================================
-    class YearFilter : AnimeFilter.Select(
-        "Año",
-        getYearOptions()
-    )
+    class YearFilter :
+        AnimeFilter.Select(
+            "Año",
+            getYearOptions(),
+        )
 
     // ============================================
     // 5. TEMPORADA (selección única)
     // ============================================
-    class SeasonFilter : AnimeFilter.Select(
-        "Temporada",
-        getSeasonOptions()
-    )
+    class SeasonFilter :
+        AnimeFilter.Select(
+            "Temporada",
+            getSeasonOptions(),
+        )
 
     // ============================================
     // 6. FORMATO (selección única)
     // ============================================
-    class FormatFilter : AnimeFilter.Select(
-        "Formato",
-        getFormatOptions()
-    )
+    class FormatFilter :
+        AnimeFilter.Select(
+            "Formato",
+            getFormatOptions(),
+        )
 
     // ============================================
     // 7. ESTADO (selección única)
     // ============================================
-    class StatusFilter : AnimeFilter.Select(
-        "Estado",
-        getStatusOptions()
-    )
+    class StatusFilter :
+        AnimeFilter.Select(
+            "Estado",
+            getStatusOptions(),
+        )
 
     // ============================================
     // 8. IDIOMA (selección única)
     // ============================================
-    class LanguageFilter : AnimeFilter.Select(
-        "Idioma",
-        getLanguageOptions()
-    )
+    class LanguageFilter :
+        AnimeFilter.Select(
+            "Idioma",
+            getLanguageOptions(),
+        )
 
     // ============================================
     // 9. ORDEN (selección única)
     // ============================================
-    class OrderFilter : AnimeFilter.Select(
-        "Ordenar por",
-        getOrderOptions()
-    )
+    class OrderFilter :
+        AnimeFilter.Select(
+            "Ordenar por",
+            getOrderOptions(),
+        )
 
     // ============================================
     // LISTAS DE OPCIONES
     // ============================================
 
-    private fun getGenreList(): List<GenreCheckBox> {
-        return listOf(
-            GenreCheckBox("Accion"),
-            GenreCheckBox("Aventura"),
-            GenreCheckBox("Avant Garde"),
-            GenreCheckBox("Award Winning"),
-            GenreCheckBox("Boys Love"),
-            GenreCheckBox("Ciencia Ficcion"),
-            GenreCheckBox("Comedia"),
-            GenreCheckBox("Deporte"),
-            GenreCheckBox("Drama"),
-            GenreCheckBox("Ecchi"),
-            GenreCheckBox("Erotica"),
-            GenreCheckBox("Fantasia"),
-            GenreCheckBox("Girls Love"),
-            GenreCheckBox("Gourmet"),
-            GenreCheckBox("Historico"),
-            GenreCheckBox("Mecha"),
-            GenreCheckBox("Misterio"),
-            GenreCheckBox("Recuentos de la vida"),
-            GenreCheckBox("Romance"),
-            GenreCheckBox("Shounen"),
-            GenreCheckBox("Shoujo"),
-            GenreCheckBox("Seinen"),
-            GenreCheckBox("Josei"),
-            GenreCheckBox("Sobrenatural"),
-            GenreCheckBox("Suspenso"),
-            GenreCheckBox("Terror")
-        )
-    }
+    private fun getGenreList(): List<GenreCheckBox> = listOf(
+        GenreCheckBox("Accion"),
+        GenreCheckBox("Aventura"),
+        GenreCheckBox("Avant Garde"),
+        GenreCheckBox("Award Winning"),
+        GenreCheckBox("Boys Love"),
+        GenreCheckBox("Ciencia Ficcion"),
+        GenreCheckBox("Comedia"),
+        GenreCheckBox("Deporte"),
+        GenreCheckBox("Drama"),
+        GenreCheckBox("Ecchi"),
+        GenreCheckBox("Erotica"),
+        GenreCheckBox("Fantasia"),
+        GenreCheckBox("Girls Love"),
+        GenreCheckBox("Gourmet"),
+        GenreCheckBox("Historico"),
+        GenreCheckBox("Mecha"),
+        GenreCheckBox("Misterio"),
+        GenreCheckBox("Recuentos de la vida"),
+        GenreCheckBox("Romance"),
+        GenreCheckBox("Shounen"),
+        GenreCheckBox("Shoujo"),
+        GenreCheckBox("Seinen"),
+        GenreCheckBox("Josei"),
+        GenreCheckBox("Sobrenatural"),
+        GenreCheckBox("Suspenso"),
+        GenreCheckBox("Terror"),
+    )
 
-    private fun getThemeList(): List<ThemeCheckBox> {
-        return listOf(
-            ThemeCheckBox("Adult Cast"),
-            ThemeCheckBox("Anthropomorphic"),
-            ThemeCheckBox("Arte Marciales"),
-            ThemeCheckBox("Carreras"),
-            ThemeCheckBox("CGDCT"),
-            ThemeCheckBox("Childcare"),
-            ThemeCheckBox("Combat Sports"),
-            ThemeCheckBox("Crossdressing"),
-            ThemeCheckBox("Delinquents"),
-            ThemeCheckBox("Detective"),
-            ThemeCheckBox("Educational"),
-            ThemeCheckBox("Escuela"),
-            ThemeCheckBox("Espacial"),
-            ThemeCheckBox("Gag Humor"),
-            ThemeCheckBox("Gore"),
-            ThemeCheckBox("Harem"),
-            ThemeCheckBox("High Stakes Game"),
-            ThemeCheckBox("Idols (Female)"),
-            ThemeCheckBox("Idols (Male)"),
-            ThemeCheckBox("Isekai"),
-            ThemeCheckBox("Iyashikei"),
-            ThemeCheckBox("Juego de Estrategia"),
-            ThemeCheckBox("Love Polygon"),
-            ThemeCheckBox("Love Status Quo"),
-            ThemeCheckBox("Magical Sex Shift"),
-            ThemeCheckBox("Mahou Shoujo"),
-            ThemeCheckBox("Medical"),
-            ThemeCheckBox("Militar"),
-            ThemeCheckBox("Mitologia"),
-            ThemeCheckBox("Musica"),
-            ThemeCheckBox("Organized Crime"),
-            ThemeCheckBox("Otaku Culture"),
-            ThemeCheckBox("Parodia"),
-            ThemeCheckBox("Performing Arts"),
-            ThemeCheckBox("Pets"),
-            ThemeCheckBox("Psicologico"),
-            ThemeCheckBox("Reincarnation"),
-            ThemeCheckBox("Reverse Harem"),
-            ThemeCheckBox("Samurai"),
-            ThemeCheckBox("Showbiz"),
-            ThemeCheckBox("Super Poderes"),
-            ThemeCheckBox("Survival"),
-            ThemeCheckBox("Team Sports"),
-            ThemeCheckBox("Time Travel"),
-            ThemeCheckBox("Urban Fantasy"),
-            ThemeCheckBox("Vampiros"),
-            ThemeCheckBox("Video Game"),
-            ThemeCheckBox("Villainess"),
-            ThemeCheckBox("Visual Arts"),
-            ThemeCheckBox("Workplace")
-        )
-    }
+    private fun getThemeList(): List<ThemeCheckBox> = listOf(
+        ThemeCheckBox("Adult Cast"),
+        ThemeCheckBox("Anthropomorphic"),
+        ThemeCheckBox("Arte Marciales"),
+        ThemeCheckBox("Carreras"),
+        ThemeCheckBox("CGDCT"),
+        ThemeCheckBox("Childcare"),
+        ThemeCheckBox("Combat Sports"),
+        ThemeCheckBox("Crossdressing"),
+        ThemeCheckBox("Delinquents"),
+        ThemeCheckBox("Detective"),
+        ThemeCheckBox("Educational"),
+        ThemeCheckBox("Escuela"),
+        ThemeCheckBox("Espacial"),
+        ThemeCheckBox("Gag Humor"),
+        ThemeCheckBox("Gore"),
+        ThemeCheckBox("Harem"),
+        ThemeCheckBox("High Stakes Game"),
+        ThemeCheckBox("Idols (Female)"),
+        ThemeCheckBox("Idols (Male)"),
+        ThemeCheckBox("Isekai"),
+        ThemeCheckBox("Iyashikei"),
+        ThemeCheckBox("Juego de Estrategia"),
+        ThemeCheckBox("Love Polygon"),
+        ThemeCheckBox("Love Status Quo"),
+        ThemeCheckBox("Magical Sex Shift"),
+        ThemeCheckBox("Mahou Shoujo"),
+        ThemeCheckBox("Medical"),
+        ThemeCheckBox("Militar"),
+        ThemeCheckBox("Mitologia"),
+        ThemeCheckBox("Musica"),
+        ThemeCheckBox("Organized Crime"),
+        ThemeCheckBox("Otaku Culture"),
+        ThemeCheckBox("Parodia"),
+        ThemeCheckBox("Performing Arts"),
+        ThemeCheckBox("Pets"),
+        ThemeCheckBox("Psicologico"),
+        ThemeCheckBox("Reincarnation"),
+        ThemeCheckBox("Reverse Harem"),
+        ThemeCheckBox("Samurai"),
+        ThemeCheckBox("Showbiz"),
+        ThemeCheckBox("Super Poderes"),
+        ThemeCheckBox("Survival"),
+        ThemeCheckBox("Team Sports"),
+        ThemeCheckBox("Time Travel"),
+        ThemeCheckBox("Urban Fantasy"),
+        ThemeCheckBox("Vampiros"),
+        ThemeCheckBox("Video Game"),
+        ThemeCheckBox("Villainess"),
+        ThemeCheckBox("Visual Arts"),
+        ThemeCheckBox("Workplace"),
+    )
 
-    private fun getDemographicList(): List<DemographicCheckBox> {
-        return listOf(
-            DemographicCheckBox("Infantil"),
-            DemographicCheckBox("Josei"),
-            DemographicCheckBox("Seinen"),
-            DemographicCheckBox("Shoujo"),
-            DemographicCheckBox("Shounen")
-        )
-    }
+    private fun getDemographicList(): List<DemographicCheckBox> = listOf(
+        DemographicCheckBox("Infantil"),
+        DemographicCheckBox("Josei"),
+        DemographicCheckBox("Seinen"),
+        DemographicCheckBox("Shoujo"),
+        DemographicCheckBox("Shounen"),
+    )
 
     private fun getYearOptions(): Array<String> {
         val currentYear = Calendar.getInstance().get(Calendar.YEAR)
         return (1950..currentYear).map { it.toString() }.reversed().toTypedArray()
     }
 
-    private fun getSeasonOptions(): Array<String> {
-        return arrayOf(
-            "Todos",
-            "Invierno",
-            "Primavera",
-            "Verano",
-            "Otoño"
-        )
-    }
+    private fun getSeasonOptions(): Array<String> = arrayOf(
+        "Todos",
+        "Invierno",
+        "Primavera",
+        "Verano",
+        "Otoño",
+    )
 
-    private fun getFormatOptions(): Array<String> {
-        return arrayOf(
-            "Todos",
-            "TV",
-            "OVA",
-            "Película",
-            "Especial",
-            "ONA"
-        )
-    }
+    private fun getFormatOptions(): Array<String> = arrayOf(
+        "Todos",
+        "TV",
+        "OVA",
+        "Película",
+        "Especial",
+        "ONA",
+    )
 
-    private fun getStatusOptions(): Array<String> {
-        return arrayOf(
-            "Todos",
-            "En emisión",
-            "Finalizado",
-            "Próximamente"
-        )
-    }
+    private fun getStatusOptions(): Array<String> = arrayOf(
+        "Todos",
+        "En emisión",
+        "Finalizado",
+        "Próximamente",
+    )
 
-    private fun getLanguageOptions(): Array<String> {
-        return arrayOf(
-            "Todos",
-            "Latino",
-            "Subtitulado",
-            "Castellano"
-        )
-    }
+    private fun getLanguageOptions(): Array<String> = arrayOf(
+        "Todos",
+        "Latino",
+        "Subtitulado",
+        "Castellano",
+    )
 
-    private fun getOrderOptions(): Array<String> {
-        return arrayOf(
-            "Reciente agregado",
-            "Popularidad",
-            "Puntuación",
-            "A-Z",
-            "Z-A"
-        )
-    }
+    private fun getOrderOptions(): Array<String> = arrayOf(
+        "Reciente agregado",
+        "Popularidad",
+        "Puntuación",
+        "A-Z",
+        "Z-A",
+    )
 }
 
 /**
@@ -310,7 +303,7 @@ fun AnimeFilterList.buildFilterParams(): String {
             "Popularidad" to "popular",
             "Puntuación" to "score",
             "A-Z" to "title",
-            "Z-A" to "title_desc"
+            "Z-A" to "title_desc",
         )
         orderMap[order]?.let { params.add("order=$it") }
     }

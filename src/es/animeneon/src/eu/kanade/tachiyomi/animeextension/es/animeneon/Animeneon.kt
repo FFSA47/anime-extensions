@@ -12,7 +12,6 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.preferences.getPref
 import eu.kanade.tachiyomi.util.preferences.setPref
 import okhttp3.Headers
 import okhttp3.Request
@@ -36,24 +35,16 @@ class Animeneon : ParsedAnimeHttpSource() {
     private val serverPrefKey = "preferred_server"
     private val qualityPrefKey = "preferred_quality"
 
-    private fun getPreferredServer(): String? {
-        return preferences.getString(serverPrefKey, null)
-    }
+    private fun getPreferredServer(): String? = preferences.getString(serverPrefKey, null)
 
-    private fun getPreferredQuality(): String? {
-        return preferences.getString(qualityPrefKey, null)
-    }
+    private fun getPreferredQuality(): String? = preferences.getString(qualityPrefKey, null)
 
     // ===============================
     // 1. POPULAR
     // ===============================
-    override fun popularAnimeRequest(page: Int): Request {
-        return GET("$baseUrl/nuevo-anime?page=$page", headers)
-    }
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/nuevo-anime?page=$page", headers)
 
-    override fun popularAnimeParse(response: Response): List<SAnime> {
-        return parseAnimeList(response.asJsoup())
-    }
+    override fun popularAnimeParse(response: Response): List<SAnime> = parseAnimeList(response.asJsoup())
 
     // ===============================
     // 2. BÚSQUEDA (con filtros)
@@ -63,16 +54,12 @@ class Animeneon : ParsedAnimeHttpSource() {
         return GET("$baseUrl/browse?q=$query&page=$page$filterParams", headers)
     }
 
-    override fun searchAnimeParse(response: Response): List<SAnime> {
-        return parseAnimeList(response.asJsoup())
-    }
+    override fun searchAnimeParse(response: Response): List<SAnime> = parseAnimeList(response.asJsoup())
 
     // ===============================
     // 3. DETALLES DEL ANIME
     // ===============================
-    override fun animeDetailsRequest(anime: SAnime): Request {
-        return GET("$baseUrl${anime.url}", headers)
-    }
+    override fun animeDetailsRequest(anime: SAnime): Request = GET("$baseUrl${anime.url}", headers)
 
     override fun animeDetailsParse(response: Response): SAnime {
         val doc = response.asJsoup()
@@ -106,9 +93,7 @@ class Animeneon : ParsedAnimeHttpSource() {
     // ===============================
     // 4. LISTA DE EPISODIOS (descendente: más reciente primero)
     // ===============================
-    override fun episodeListRequest(anime: SAnime): Request {
-        return GET("$baseUrl${anime.url}", headers)
-    }
+    override fun episodeListRequest(anime: SAnime): Request = GET("$baseUrl${anime.url}", headers)
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val doc = response.asJsoup()
@@ -125,15 +110,13 @@ class Animeneon : ParsedAnimeHttpSource() {
                 this.name = name
                 episode_number = number.toFloat()
             }
-        }.sortedByDescending { it.episode_number }  // Más reciente primero
+        }.sortedByDescending { it.episode_number } // Más reciente primero
     }
 
     // ===============================
     // 5. VIDEOS (con extractores + preferencias)
     // ===============================
-    override fun videoListRequest(episode: SEpisode): Request {
-        return GET("$baseUrl${episode.url}", headers)
-    }
+    override fun videoListRequest(episode: SEpisode): Request = GET("$baseUrl${episode.url}", headers)
 
     override fun videoListParse(response: Response): List<Video> {
         val doc = response.asJsoup()
@@ -158,7 +141,7 @@ class Animeneon : ParsedAnimeHttpSource() {
             "mixdrop.co" to MixDropExtractor(client),
             "mixdrop.ag" to MixDropExtractor(client),
             "streamtape.com" to StreamTapeExtractor(client),
-            "lulustream.com" to LuluExtractor(client, headers)
+            "lulustream.com" to LuluExtractor(client, headers),
         )
 
         for (obj in serverObjects) {
@@ -173,33 +156,33 @@ class Animeneon : ParsedAnimeHttpSource() {
                             extractor.videosFromUrl(
                                 url = link,
                                 headers = Headers.headersOf(),
-                                prefix = "$hostKey - "
+                                prefix = "$hostKey - ",
                             )
                         }
                         is VoeExtractor -> {
                             extractor.videosFromUrl(
                                 url = link,
-                                prefix = "$hostKey - "
+                                prefix = "$hostKey - ",
                             )
                         }
                         is MixDropExtractor -> {
                             extractor.videosFromUrl(
                                 url = link,
                                 prefix = "$hostKey - ",
-                                lang = "es"
+                                lang = "es",
                             )
                         }
                         is StreamTapeExtractor -> {
                             val video = extractor.videoFromUrl(
                                 url = link,
-                                quality = hostKey
+                                quality = hostKey,
                             )
                             if (video != null) listOf(video) else emptyList()
                         }
                         is LuluExtractor -> {
                             extractor.videosFromUrl(
                                 url = link,
-                                prefix = "$hostKey - "
+                                prefix = "$hostKey - ",
                             )
                         }
                         else -> emptyList()
@@ -234,35 +217,35 @@ class Animeneon : ParsedAnimeHttpSource() {
         }
 
         // Orden personalizado: servidor preferido, luego calidad preferida, luego alfabético
-        return allVideos.sortedWith(compareBy<Video> { video ->
-            val server = getServerFromVideo(video)
-            val matchesServer = preferredServer != null && server == preferredServer.lowercase()
-            if (matchesServer) 0 else 1
-        }.thenBy { video ->
-            val res = getResolutionFromVideo(video)
-            val matchesQuality = preferredQuality != null && res == preferredQuality.lowercase()
-            if (matchesQuality) 0 else 1
-        }.thenBy { video ->
-            video.quality
-        })
+        return allVideos.sortedWith(
+            compareBy<Video> { video ->
+                val server = getServerFromVideo(video)
+                val matchesServer = preferredServer != null && server == preferredServer.lowercase()
+                if (matchesServer) 0 else 1
+            }.thenBy { video ->
+                val res = getResolutionFromVideo(video)
+                val matchesQuality = preferredQuality != null && res == preferredQuality.lowercase()
+                if (matchesQuality) 0 else 1
+            }.thenBy { video ->
+                video.quality
+            },
+        )
     }
 
     // ===============================
     // 6. FILTROS
     // ===============================
-    override fun getFilterList(): AnimeFilterList {
-        return AnimeFilterList(
-            Filters.GenreFilter(),
-            Filters.ThemeFilter(),
-            Filters.DemographicFilter(),
-            Filters.YearFilter(),
-            Filters.SeasonFilter(),
-            Filters.FormatFilter(),
-            Filters.StatusFilter(),
-            Filters.LanguageFilter(),
-            Filters.OrderFilter()
-        )
-    }
+    override fun getFilterList(): AnimeFilterList = AnimeFilterList(
+        Filters.GenreFilter(),
+        Filters.ThemeFilter(),
+        Filters.DemographicFilter(),
+        Filters.YearFilter(),
+        Filters.SeasonFilter(),
+        Filters.FormatFilter(),
+        Filters.StatusFilter(),
+        Filters.LanguageFilter(),
+        Filters.OrderFilter(),
+    )
 
     // ===============================
     // 7. PANTALLA DE PREFERENCIAS
