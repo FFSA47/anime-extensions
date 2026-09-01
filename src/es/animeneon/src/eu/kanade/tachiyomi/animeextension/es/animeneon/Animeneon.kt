@@ -22,6 +22,10 @@ import okhttp3.Headers
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 class Animeneon :
     AnimeHttpSource(),
@@ -34,6 +38,7 @@ class Animeneon :
     override val supportsLatest = true
 
     private val preferences by getPreferencesLazy()
+    private val json by lazy { Json { ignoreUnknownKeys = true } }
 
     private val prefServerKey = "preferred_server"
     private val prefQualityKey = "preferred_quality"
@@ -64,9 +69,9 @@ class Animeneon :
     private val serverConventions = listOf(
         "mp4upload" to listOf("mp4upload", "mp4upload.com"),
         "voe" to listOf("voe", "voe.com", "voe.sx"),
-        "mixdrop" to listOf("mixdrop", "mixdrop.co", "mixdrop.ag", "mixdrop.top"),
+        "mixdrop" to listOf("mixdrop", "mixdrop.co", "mixdrop.ag"),
         "streamtape" to listOf("streamtape", "streamtape.com"),
-        "lulu" to listOf("lulu", "lulustream", "lulustream.com", "luluvdo", "luluvdoo.com")
+        "lulu" to listOf("lulu", "lulustream", "lulustream.com", "luluvdo")
     )
 
     // ====================== POPULAR ======================
@@ -157,27 +162,61 @@ class Animeneon :
         }
     }
 
-    // ====================== EPISODIOS ======================
+    // ====================== EPISODIOS (desde JSON) ======================
     override fun episodeListRequest(anime: SAnime): Request {
         return GET("$baseUrl${anime.url}", headers)
     }
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()
-        val episodeElements = document.select(".a2-ep-list a.a2-ep-card")
-        return episodeElements.mapNotNull { element ->
-            val href = element.attr("href")
-            val number = extractEpisodeNumber(href) ?: return@mapNotNull null
-            val name = element.selectFirst(".a2-ep-title")?.text()?.trim() ?: "Episodio $number"
-            SEpisode.create().apply {
-                url = href
-                this.name = name
-                episode_number = number
-            }
-        }.sortedByDescending { it.episode_number }
+
+        // Buscar el script que contiene el objeto __sveltekit_... con los datos
+        val script = document.select("script:containsData(episodes)").firstOrNull()
+            ?: return emptyList()
+
+        val scriptData = script.data()
+
+        // Extraer el objeto JSON del script
+        // Patrón: data:{...}  o  data:{anime:{episodes:[...]}}
+        val jsonRegex = Regex("""data:\s*(\{[^{}]*"episodes"\s*:\s*\[[\s\S]*?\][^{}]*\})""")
+        val match = jsonRegex.find(scriptData)
+        val jsonString = match?.groupValues?.get(1) ?: return emptyList()
+
+        // Parsear el JSON para obtener el array de episodios
+        return try {
+            val jsonObject = json.parseToJsonElement(jsonString).jsonObject
+            val animeObject = jsonObject["anime"]?.jsonObject ?: jsonObject
+            val episodesArray = animeObject["episodes"]?.jsonArray ?: return emptyList()
+
+            episodesArray.mapNotNull { element ->
+                val obj = element.jsonObject
+                val number = obj["number"]?.jsonPrimitive?.content?.toFloatOrNull() ?: return@mapNotNull null
+                val title = obj["title"]?.jsonPrimitive?.content ?: "Episodio $number"
+                val slug = obj["slug"]?.jsonPrimitive?.content ?: return@mapNotNull null
+
+                SEpisode.create().apply {
+                    url = "/ver/$slug"
+                    this.name = title
+                    episode_number = number
+                }
+            }.sortedByDescending { it.episode_number }
+        } catch (e: Exception) {
+            // Fallback: extraer episodios del HTML (paginado)
+            val episodeElements = document.select(".a2-ep-list a.a2-ep-card")
+            episodeElements.mapNotNull { element ->
+                val href = element.attr("href")
+                val number = extractEpisodeNumber(href) ?: return@mapNotNull null
+                val name = element.selectFirst(".a2-ep-title")?.text()?.trim() ?: "Episodio $number"
+                SEpisode.create().apply {
+                    url = href
+                    this.name = name
+                    episode_number = number
+                }
+            }.sortedByDescending { it.episode_number }
+        }
     }
 
-    // ====================== VIDEOS ======================
+    // ====================== VIDEOS (sin comillas en keys) ======================
     override fun videoListRequest(episode: SEpisode): Request {
         return GET("$baseUrl${episode.url}", headers)
     }
@@ -187,28 +226,34 @@ class Animeneon :
         val script = document.select("script:containsData(groups)").firstOrNull() ?: return emptyList()
         val scriptData = script.data()
 
-        // Extraer el array "groups" completo
-        val groupsRegex = Regex("""groups\s*:\s*(\[[\s\S]*?\](?=\s*[,}]))""")
+        // Extraer el array groups sin comillas (JavaScript object)
+        val groupsRegex = Regex("""groups\s*:\s*(\[[\s\S]*?\])\s*[,}]""")
         val groupsMatch = groupsRegex.find(scriptData)
         val groupsJson = groupsMatch?.groupValues?.get(1) ?: return emptyList()
 
-        // Extraer cada array "servers" dentro de "groups"
-        val serverObjects = mutableListOf<String>()
-        val serversRegex = Regex("""servers\s*:\s*\[([\s\S]*?)\]""")
-        val serversMatches = serversRegex.findAll(groupsJson)
-
-        for (match in serversMatches) {
-            val serversArray = match.groupValues[1]
-            val objectRegex = Regex("""\{[^{}]*\}""")
-            serverObjects.addAll(objectRegex.findAll(serversArray).map { it.value }.toList())
-        }
+        // Ahora extraer cada grupo y dentro de cada grupo, extraer "servers": [...]
+        // Usamos regex sin comillas para las keys
+        val groupObjects = Regex("""\{[^{}]*?\}""").findAll(groupsJson).map { it.value }.toList()
 
         val allVideos = mutableListOf<Video>()
-        for (obj in serverObjects) {
-            val link = Regex("""link\s*:\s*"([^"]+)"""").find(obj)?.groupValues?.get(1) ?: continue
-            val hostKey = Regex("""hostKey\s*:\s*"([^"]+)"""").find(obj)?.groupValues?.get(1) ?: continue
-            val videos = resolveServer(link, hostKey)
-            allVideos.addAll(videos)
+
+        for (groupObj in groupObjects) {
+            // Buscar "servers": [ ... ] dentro del grupo
+            val serversRegex = Regex("""servers\s*:\s*(\[[\s\S]*?\])""")
+            val serversMatch = serversRegex.find(groupObj)
+            val serversArray = serversMatch?.groupValues?.get(1) ?: continue
+
+            // Extraer cada objeto servidor dentro del array
+            val serverObjects = Regex("""\{[^{}]*?\}""").findAll(serversArray).map { it.value }.toList()
+
+            for (serverObj in serverObjects) {
+                // Extraer link y hostKey sin comillas
+                val link = Regex("""link\s*:\s*"([^"]+)"""").find(serverObj)?.groupValues?.get(1) ?: continue
+                val hostKey = Regex("""hostKey\s*:\s*"([^"]+)"""").find(serverObj)?.groupValues?.get(1) ?: continue
+
+                val videos = resolveServer(link, hostKey)
+                allVideos.addAll(videos)
+            }
         }
 
         return allVideos
