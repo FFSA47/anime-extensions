@@ -9,9 +9,9 @@ apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     // Extractores de video
-    implementation(project(':lib-voeextractor'))
-    implementation(project(':lib-mp4uploadextractor'))
-    implementation(project(':lib-mixdropextractor'))
-    implementation(project(':lib-streamtapeextractor'))
-    implementation(project(':lib-luluextractor'))
+    implementation(project(':lib:voeextractor'))
+    implementation(project(':lib:mp4uploadextractor'))
+    implementation(project(':lib:mixdropextractor'))
+    implementation(project(':lib:streamtapeextractor'))
+    implementation(project(':lib:luluextractor'))
 }
