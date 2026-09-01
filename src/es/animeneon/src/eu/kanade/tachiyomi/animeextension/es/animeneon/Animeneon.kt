@@ -1,4 +1,3 @@
-```kotlin
 package eu.kanade.tachiyomi.animeextension.es.animeneon
 
 import aniyomi.lib.luluextractor.LuluExtractor
@@ -1115,4 +1114,3 @@ class Animeneon :
             ?.toFloatOrNull()
     }
 }
-```
