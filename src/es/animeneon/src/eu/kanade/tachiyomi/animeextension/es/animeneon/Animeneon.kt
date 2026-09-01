@@ -18,7 +18,6 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import android.content.SharedPreferences
-import android.content.Context
 
 class Animeneon : ParsedAnimeHttpSource() {
 
@@ -28,11 +27,10 @@ class Animeneon : ParsedAnimeHttpSource() {
     override val supportsLatest = false
 
     // ===============================
-    // PREFERENCIAS (usando applicationContext)
+    // PREFERENCIAS (usando getApplicationContext())
     // ===============================
     private val preferences: SharedPreferences by lazy {
-        // applicationContext está disponible en la clase base Source
-        applicationContext.getSharedPreferences("source_$id", Context.MODE_PRIVATE)
+        getApplicationContext().getSharedPreferences("source_$id", android.content.Context.MODE_PRIVATE)
     }
 
     private val serverPrefKey = "preferred_server"
