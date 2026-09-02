@@ -1,13 +1,13 @@
 package eu.kanade.tachiyomi.animeextension.es.animeneon
 
+import androidx.preference.ListPreference
+import androidx.preference.PreferenceScreen
 import aniyomi.lib.luluextractor.LuluExtractor
 import aniyomi.lib.mixdropextractor.MixDropExtractor
 import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
 import aniyomi.lib.universalextractor.UniversalExtractor
 import aniyomi.lib.voeextractor.VoeExtractor
-import androidx.preference.ListPreference
-import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -19,9 +19,6 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
@@ -51,13 +48,13 @@ class Animeneon :
         "Mixdrop",
         "Streamtape",
         "Lulu",
-        "Universal"
+        "Universal",
     )
 
     private val qualityList = arrayOf(
         "1080p",
         "720p",
-        "480p"
+        "480p",
     )
 
     private val qualityRegex = Regex("""(\d+)p""")
@@ -91,44 +88,42 @@ class Animeneon :
     private val serverConventions = listOf(
         "mp4upload" to listOf(
             "mp4upload",
-            "mp4upload.com"
+            "mp4upload.com",
         ),
         "voe" to listOf(
             "voe",
             "voe.com",
-            "voe.sx"
+            "voe.sx",
         ),
         "mixdrop" to listOf(
             "mixdrop",
             "mixdrop.co",
-            "mixdrop.ag"
+            "mixdrop.ag",
         ),
         "streamtape" to listOf(
             "streamtape",
-            "streamtape.com"
+            "streamtape.com",
         ),
         "lulu" to listOf(
             "lulu",
             "lulustream",
             "lulustream.com",
-            "luluvdo"
-        )
+            "luluvdo",
+        ),
     )
 
     // ====================== POPULAR ======================
 
-    override fun popularAnimeRequest(page: Int): Request {
-        return GET(
-            "$baseUrl/nuevo-anime?page=$page",
-            headers
-        )
-    }
+    override fun popularAnimeRequest(page: Int): Request = GET(
+        "$baseUrl/nuevo-anime?page=$page",
+        headers,
+    )
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val document = response.asJsoup()
 
         val elements = document.select(
-            "div.grid a[href^=/anime/]"
+            "div.grid a[href^=/anime/]",
         )
 
         val animeList = elements.mapNotNull { element ->
@@ -136,29 +131,27 @@ class Animeneon :
         }
 
         val hasNextPage = document.selectFirst(
-            "a[rel=next]"
+            "a[rel=next]",
         ) != null
 
         return AnimesPage(
             animeList,
-            hasNextPage
+            hasNextPage,
         )
     }
 
     // ====================== ÚLTIMOS EPISODIOS ======================
 
-    override fun latestUpdatesRequest(page: Int): Request {
-        return GET(
-            "$baseUrl/episodios?page=$page",
-            headers
-        )
-    }
+    override fun latestUpdatesRequest(page: Int): Request = GET(
+        "$baseUrl/episodios?page=$page",
+        headers,
+    )
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val document = response.asJsoup()
 
         val episodeItems = document.select(
-            "div.grid a[href^=/ver/]"
+            "div.grid a[href^=/ver/]",
         )
 
         val animeList = episodeItems.mapNotNull { link ->
@@ -169,13 +162,13 @@ class Animeneon :
 
             val animeSlug = episodeSlug.replace(
                 Regex("-\\d+\\.[A-Za-z0-9]+$"),
-                ""
+                "",
             )
 
             val animeUrl = "/anime/$animeSlug"
 
             val titleElement = link.selectFirst(
-                ".text-\\[13px\\].font-semibold, .line-clamp-1"
+                ".text-\\[13px\\].font-semibold, .line-clamp-1",
             )
 
             val title = titleElement
@@ -197,12 +190,12 @@ class Animeneon :
         }
 
         val hasNextPage = document.selectFirst(
-            "a[rel=next]"
+            "a[rel=next]",
         ) != null
 
         return AnimesPage(
             animeList,
-            hasNextPage
+            hasNextPage,
         )
     }
 
@@ -211,35 +204,31 @@ class Animeneon :
     override fun searchAnimeRequest(
         page: Int,
         query: String,
-        filters: AnimeFilterList
+        filters: AnimeFilterList,
     ): Request {
         val filterParams = filters.buildFilterParams()
 
         return GET(
             "$baseUrl/browse?q=$query&page=$page$filterParams",
-            headers
+            headers,
         )
     }
 
     override fun searchAnimeParse(
-        response: Response
-    ): AnimesPage {
-        return popularAnimeParse(response)
-    }
+        response: Response,
+    ): AnimesPage = popularAnimeParse(response)
 
     // ====================== DETALLE ======================
 
     override fun animeDetailsRequest(
-        anime: SAnime
-    ): Request {
-        return GET(
-            "$baseUrl${anime.url}",
-            headers
-        )
-    }
+        anime: SAnime,
+    ): Request = GET(
+        "$baseUrl${anime.url}",
+        headers,
+    )
 
     override fun animeDetailsParse(
-        response: Response
+        response: Response,
     ): SAnime {
         val document = response.asJsoup()
 
@@ -272,7 +261,7 @@ class Animeneon :
                 }
 
             val statusElement = document.selectFirst(
-                ".a2-badge-status"
+                ".a2-badge-status",
             )
 
             val statusText = statusElement
@@ -282,12 +271,12 @@ class Animeneon :
             status = when {
                 statusText?.contains(
                     "Finalizado",
-                    ignoreCase = true
+                    ignoreCase = true,
                 ) == true -> SAnime.COMPLETED
 
                 statusText?.contains(
                     "Emisión",
-                    ignoreCase = true
+                    ignoreCase = true,
                 ) == true -> SAnime.ONGOING
 
                 else -> SAnime.UNKNOWN
@@ -298,17 +287,17 @@ class Animeneon :
     // ====================== EPISODIOS ======================
 
     override fun episodeListRequest(
-        anime: SAnime
+        anime: SAnime,
     ): Request {
         // La misma URL de detalles, pero nos basta para obtener el total y el patrón.
         return GET(
             "$baseUrl${anime.url}",
-            headers
+            headers,
         )
     }
 
     override fun episodeListParse(
-        response: Response
+        response: Response,
     ): List<SEpisode> {
         val document = response.asJsoup()
         val episodes = mutableListOf<SEpisode>()
@@ -371,16 +360,14 @@ class Animeneon :
     // ====================== VIDEOS ======================
 
     override fun videoListRequest(
-        episode: SEpisode
-    ): Request {
-        return GET(
-            "$baseUrl${episode.url}",
-            headers
-        )
-    }
+        episode: SEpisode,
+    ): Request = GET(
+        "$baseUrl${episode.url}",
+        headers,
+    )
 
     override fun videoListParse(
-        response: Response
+        response: Response,
     ): List<Video> {
         val document = response.asJsoup()
 
@@ -409,7 +396,7 @@ class Animeneon :
 
         val groupsArray = extractArrayAfterKey(
             scriptData,
-            "groups"
+            "groups",
         ) ?: return emptyList()
 
         val allVideos = mutableListOf<Video>()
@@ -424,7 +411,7 @@ class Animeneon :
             val serversStart = findKey(
                 groupsArray,
                 "servers",
-                searchPosition
+                searchPosition,
             )
 
             if (serversStart == -1) {
@@ -433,7 +420,7 @@ class Animeneon :
 
             val serversArray = extractArrayAt(
                 groupsArray,
-                serversStart
+                serversStart,
             )
 
             if (serversArray == null) {
@@ -454,12 +441,12 @@ class Animeneon :
             for (serverObj in serverObjects) {
                 val link = extractStringProperty(
                     serverObj,
-                    "link"
+                    "link",
                 ) ?: continue
 
                 val hostKey = extractStringProperty(
                     serverObj,
-                    "hostKey"
+                    "hostKey",
                 ) ?: continue
 
                 /*
@@ -469,11 +456,11 @@ class Animeneon :
                 if (
                     hostKey.contains(
                         "mega.nz",
-                        ignoreCase = true
+                        ignoreCase = true,
                     ) ||
                     link.contains(
                         "mega.nz",
-                        ignoreCase = true
+                        ignoreCase = true,
                     )
                 ) {
                     searchPosition = serversStart + 7
@@ -482,7 +469,7 @@ class Animeneon :
 
                 val videos = resolveServer(
                     link,
-                    hostKey
+                    hostKey,
                 )
 
                 allVideos.addAll(videos)
@@ -498,7 +485,7 @@ class Animeneon :
 
     private fun resolveServer(
         url: String,
-        hostKey: String
+        hostKey: String,
     ): List<Video> {
         val normalizedHost = hostKey.lowercase()
 
@@ -511,7 +498,7 @@ class Animeneon :
         val matchedServer = serverConventions.firstOrNull { (_, aliases) ->
             aliases.any { alias ->
                 normalizedHost.contains(
-                    alias.lowercase()
+                    alias.lowercase(),
                 )
             }
         }?.first
@@ -521,7 +508,7 @@ class Animeneon :
                 aliases.any { alias ->
                     url.contains(
                         alias,
-                        ignoreCase = true
+                        ignoreCase = true,
                     )
                 }
             }?.first
@@ -531,14 +518,14 @@ class Animeneon :
                 mp4uploadExtractor.videosFromUrl(
                     url,
                     headers = headers,
-                    prefix = "Mp4upload - "
+                    prefix = "Mp4upload - ",
                 )
             }
 
             "voe" -> {
                 voeExtractor.videosFromUrl(
                     url,
-                    prefix = "Voe - "
+                    prefix = "Voe - ",
                 )
             }
 
@@ -546,14 +533,14 @@ class Animeneon :
                 mixdropExtractor.videosFromUrl(
                     url,
                     prefix = "Mixdrop - ",
-                    lang = "es"
+                    lang = "es",
                 )
             }
 
             "streamtape" -> {
                 val video = streamTapeExtractor.videoFromUrl(
                     url,
-                    quality = "Streamtape"
+                    quality = "Streamtape",
                 )
 
                 if (video != null) {
@@ -566,14 +553,14 @@ class Animeneon :
             "lulu" -> {
                 luluExtractor.videosFromUrl(
                     url,
-                    prefix = "Lulu - "
+                    prefix = "Lulu - ",
                 )
             }
 
             else -> {
                 universalExtractor.videosFromUrl(
                     url,
-                    headers
+                    headers,
                 )
             }
         }
@@ -593,12 +580,12 @@ class Animeneon :
      */
     private fun extractArrayAfterKey(
         text: String,
-        key: String
+        key: String,
     ): String? {
         val position = findKey(
             text,
             key,
-            0
+            0,
         )
 
         if (position == -1) {
@@ -607,7 +594,7 @@ class Animeneon :
 
         return extractArrayAt(
             text,
-            position
+            position,
         )
     }
 
@@ -618,15 +605,15 @@ class Animeneon :
     private fun findKey(
         text: String,
         key: String,
-        start: Int
+        start: Int,
     ): Int {
         val pattern = Regex(
-            """(?:"|')?${Regex.escape(key)}(?:"|')?\s*:"""
+            """(?:"|')?${Regex.escape(key)}(?:"|')?\s*:""",
         )
 
         val match = pattern.find(
             text,
-            start
+            start,
         )
 
         return match?.range?.first ?: -1
@@ -638,11 +625,11 @@ class Animeneon :
      */
     private fun extractArrayAt(
         text: String,
-        keyPosition: Int
+        keyPosition: Int,
     ): String? {
         val colon = text.indexOf(
             ':',
-            keyPosition
+            keyPosition,
         )
 
         if (colon == -1) {
@@ -669,12 +656,12 @@ class Animeneon :
             text,
             start,
             '[',
-            ']'
+            ']',
         ) ?: return null
 
         return text.substring(
             start,
-            end + 1
+            end + 1,
         )
     }
 
@@ -685,7 +672,7 @@ class Animeneon :
         text: String,
         start: Int,
         openChar: Char,
-        closeChar: Char
+        closeChar: Char,
     ): Int? {
         var depth = 0
         var inString = false
@@ -743,7 +730,7 @@ class Animeneon :
      * pero el método también soporta objetos anidados.
      */
     private fun extractObjects(
-        arrayText: String
+        arrayText: String,
     ): List<String> {
         val objects = mutableListOf<String>()
 
@@ -752,7 +739,7 @@ class Animeneon :
         while (position < arrayText.length) {
             val start = arrayText.indexOf(
                 '{',
-                position
+                position,
             )
 
             if (start == -1) {
@@ -763,7 +750,7 @@ class Animeneon :
                 arrayText,
                 start,
                 '{',
-                '}'
+                '}',
             )
 
             if (end == null) {
@@ -773,8 +760,8 @@ class Animeneon :
             objects.add(
                 arrayText.substring(
                     start,
-                    end + 1
-                )
+                    end + 1,
+                ),
             )
 
             position = end + 1
@@ -792,10 +779,10 @@ class Animeneon :
      */
     private fun extractStringProperty(
         text: String,
-        key: String
+        key: String,
     ): String? {
         val regex = Regex(
-            """(?:"|')?${Regex.escape(key)}(?:"|')?\s*:\s*["']([^"']+)["']"""
+            """(?:"|')?${Regex.escape(key)}(?:"|')?\s*:\s*["']([^"']+)["']""",
         )
 
         return regex
@@ -809,12 +796,12 @@ class Animeneon :
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(
             prefQualityKey,
-            defaultQuality
+            defaultQuality,
         ) ?: defaultQuality
 
         val server = preferences.getString(
             prefServerKey,
-            defaultServer
+            defaultServer,
         ) ?: defaultServer
 
         return sortedWith(
@@ -822,13 +809,13 @@ class Animeneon :
                 {
                     !it.quality.contains(
                         server,
-                        ignoreCase = true
+                        ignoreCase = true,
                     )
                 },
                 {
                     !it.quality.contains(
                         quality,
-                        ignoreCase = true
+                        ignoreCase = true,
                     )
                 },
                 {
@@ -838,31 +825,29 @@ class Animeneon :
                         ?.get(1)
                         ?.toIntOrNull()
                         ?: 0
-                }
-            )
+                },
+            ),
         )
     }
 
     // ====================== FILTROS ======================
 
-    override fun getFilterList(): AnimeFilterList {
-        return AnimeFilterList(
-            Filters.GenreFilter(),
-            Filters.ThemeFilter(),
-            Filters.DemographicFilter(),
-            Filters.YearFilter(),
-            Filters.SeasonFilter(),
-            Filters.FormatFilter(),
-            Filters.StatusFilter(),
-            Filters.LanguageFilter(),
-            Filters.OrderFilter()
-        )
-    }
+    override fun getFilterList(): AnimeFilterList = AnimeFilterList(
+        Filters.GenreFilter(),
+        Filters.ThemeFilter(),
+        Filters.DemographicFilter(),
+        Filters.YearFilter(),
+        Filters.SeasonFilter(),
+        Filters.FormatFilter(),
+        Filters.StatusFilter(),
+        Filters.LanguageFilter(),
+        Filters.OrderFilter(),
+    )
 
     // ====================== PREFERENCIAS ======================
 
     override fun setupPreferenceScreen(
-        screen: PreferenceScreen
+        screen: PreferenceScreen,
     ) {
         ListPreference(screen.context).apply {
             key = prefServerKey
@@ -873,7 +858,7 @@ class Animeneon :
             setDefaultValue(defaultServer)
             value = preferences.getString(
                 prefServerKey,
-                defaultServer
+                defaultServer,
             )
 
             setOnPreferenceChangeListener { _, newValue ->
@@ -881,7 +866,7 @@ class Animeneon :
                     .edit()
                     .putString(
                         prefServerKey,
-                        newValue as String
+                        newValue as String,
                     )
                     .apply()
                 true
@@ -897,7 +882,7 @@ class Animeneon :
             setDefaultValue(defaultQuality)
             value = preferences.getString(
                 prefQualityKey,
-                defaultQuality
+                defaultQuality,
             )
 
             setOnPreferenceChangeListener { _, newValue ->
@@ -905,7 +890,7 @@ class Animeneon :
                     .edit()
                     .putString(
                         prefQualityKey,
-                        newValue as String
+                        newValue as String,
                     )
                     .apply()
                 true
@@ -916,7 +901,7 @@ class Animeneon :
     // ====================== AUXILIARES ======================
 
     private fun parseAnimeCard(
-        element: Element
+        element: Element,
     ): SAnime? {
         val href = element.attr("href")
 
@@ -946,7 +931,7 @@ class Animeneon :
     }
 
     private fun extractEpisodeNumber(
-        url: String
+        url: String,
     ): Float? {
         val regex = Regex("-(\\d+)\\.")
         val match = regex.find(url)
