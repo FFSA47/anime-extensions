@@ -314,6 +314,7 @@ class Animeneon :
     override fun episodeListRequest(
         anime: SAnime,
     ): Request {
+        // La misma URL de detalles, pero nos basta para obtener el total y el patrón.
         return GET(
             "$baseUrl${anime.url}",
             headers,
@@ -323,110 +324,62 @@ class Animeneon :
     override fun episodeListParse(
         response: Response,
     ): List<SEpisode> {
-
         val document = response.asJsoup()
+        val episodes = mutableListOf<SEpisode>()
 
-        val script = document
-            .select("script:containsData(episodes)")
-            .firstOrNull()
-            ?: return emptyList()
+        // 1. Intentar obtener el número total de episodios
+        var totalEpisodes = 0
 
-        val scriptData = script.data()
-
-        val jsonRegex = Regex(
-            """data:\s*(\{[^{}]*"episodes"\s*:\s*\[[\s\S]*?\][^{}]*\})""",
-        )
-
-        val match = jsonRegex.find(scriptData)
-
-        val jsonString =
-            match?.groupValues?.get(1)
-                ?: return emptyList()
-
-        return try {
-
-            val jsonObject =
-                json.parseToJsonElement(
-                    jsonString,
-                ).jsonObject
-
-            val animeObject =
-                jsonObject["anime"]?.jsonObject
-                    ?: jsonObject
-
-            val episodesArray =
-                animeObject["episodes"]
-                    ?.jsonArray
-                    ?: return emptyList()
-
-            episodesArray
-                .mapNotNull { element ->
-
-                    val obj = element.jsonObject
-
-                    val number =
-                        obj["number"]
-                            ?.jsonPrimitive
-                            ?.content
-                            ?.toFloatOrNull()
-                            ?: return@mapNotNull null
-
-                    val title =
-                        obj["title"]
-                            ?.jsonPrimitive
-                            ?.content
-                            ?: "Episodio $number"
-
-                    val slug =
-                        obj["slug"]
-                            ?.jsonPrimitive
-                            ?.content
-                            ?: return@mapNotNull null
-
-                    SEpisode.create().apply {
-                        url = "/ver/$slug"
-                        name = title
-                        episode_number = number
-                    }
-                }
-                .sortedByDescending {
-                    it.episode_number
-                }
-
-        } catch (e: Exception) {
-
-            // Fallback HTML
-
-            val episodeElements = document.select(
-                ".a2-ep-list a.a2-ep-card",
-            )
-
-            episodeElements
-                .mapNotNull { element ->
-
-                    val href = element.attr("href")
-
-                    val number =
-                        extractEpisodeNumber(href)
-                            ?: return@mapNotNull null
-
-                    val name =
-                        element
-                            .selectFirst(".a2-ep-title")
-                            ?.text()
-                            ?.trim()
-                            ?: "Episodio $number"
-
-                    SEpisode.create().apply {
-                        url = href
-                        this.name = name
-                        episode_number = number
-                    }
-                }
-                .sortedByDescending {
-                    it.episode_number
-                }
+        // a) Desde el texto de paginación: "Mostrando 1 a 12 de 1176"
+        val paginationInfo = document.selectFirst(".a2-pagination-info")?.text()
+        if (paginationInfo != null) {
+            val match = Regex("de\\s+(\\d+)").find(paginationInfo)
+            totalEpisodes = match?.groupValues?.get(1)?.toIntOrNull() ?: 0
         }
+
+        // b) Desde la fila de información "Episodios" en la barra lateral
+        if (totalEpisodes == 0) {
+            val infoRows = document.select(".a2-info-row")
+            for (row in infoRows) {
+                val label = row.selectFirst(".a2-info-row-label")?.text()
+                if (label?.contains("Episodios", ignoreCase = true) == true) {
+                    val value = row.selectFirst(".a2-info-row-val")?.text()
+                    totalEpisodes = value?.toIntOrNull() ?: 0
+                    break
+                }
+            }
+        }
+
+        // 2. Obtener slug y nanoid desde la URL actual
+        val path = response.request.url.pathSegments
+        val lastSegment = path.lastOrNull() ?: return emptyList()
+        val animeSlug = lastSegment.substringBefore(".")
+        val nanoid = lastSegment.substringAfter(".")
+
+        // 3. Si tenemos el total, generar todos los episodios (más nuevo → más antiguo)
+        if (totalEpisodes > 0) {
+            for (i in totalEpisodes downTo 1) {
+                SEpisode.create().apply {
+                    url = "/ver/$animeSlug-$i.$nanoid"
+                    name = "Episodio $i"
+                    episode_number = i.toFloat()
+                }.also { episodes.add(it) }
+            }
+            return episodes
+        }
+
+        // Fallback: extraer solo los episodios visibles (puede ser la primera página o solo 12)
+        val episodeElements = document.select(".a2-ep-list a.a2-ep-card")
+        return episodeElements.mapNotNull { element ->
+            val href = element.attr("href")
+            val number = extractEpisodeNumber(href) ?: return@mapNotNull null
+            val title = element.selectFirst(".a2-ep-title")?.text()?.trim() ?: "Episodio $number"
+            SEpisode.create().apply {
+                url = href
+                name = title
+                episode_number = number
+            }
+        }.sortedByDescending { it.episode_number }
     }
 
     // ====================== VIDEOS ======================
@@ -455,9 +408,9 @@ class Animeneon :
 
         /*
          * AnimeNeon utiliza JavaScript objects.
-         *
+
          * Ejemplo:
-         *
+
          * groups: [{
          *     name: "av1",
          *     servers: [{
@@ -465,7 +418,7 @@ class Animeneon :
          *         hostKey: "mp4upload.com"
          *     }]
          * }]
-         *
+
          * Las keys pueden aparecer con o sin comillas.
          */
 
@@ -507,7 +460,7 @@ class Animeneon :
 
             /*
              * Extraer los objetos individuales:
-             *
+
              * {
              *     link: "...",
              *     hostKey: "..."
@@ -611,7 +564,7 @@ class Animeneon :
                  * IMPORTANTE:
                  * Antes se utilizaba Headers.headersOf(),
                  * dejando el extractor sin headers.
-                 *
+
                  * Ahora utilizamos los headers de la extensión.
                  */
                 mp4uploadExtractor.videosFromUrl(
@@ -666,7 +619,7 @@ class Animeneon :
                 /*
                  * Si AnimeNeon añade un servidor nuevo,
                  * intentamos UniversalExtractor.
-                 *
+
                  * Mega se filtra anteriormente y nunca llega aquí.
                  */
                 universalExtractor.videosFromUrl(
@@ -682,9 +635,9 @@ class Animeneon :
     /**
      * Encuentra una propiedad y devuelve el array
      * que comienza después de ella.
-     *
+
      * Acepta:
-     *
+
      * groups: [...]
      * "groups": [...]
      * 'groups': [...]
@@ -845,7 +798,7 @@ class Animeneon :
 
     /**
      * Extrae todos los objetos { ... } de un array.
-     *
+
      * Los objetos de servers actualmente son planos,
      * pero el método también soporta objetos anidados.
      */
@@ -895,7 +848,7 @@ class Animeneon :
 
     /**
      * Extrae:
-     *
+
      * link: "..."
      * "link": "..."
      * 'link': '...'
