@@ -19,9 +19,6 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
@@ -301,18 +298,15 @@ class Animeneon :
 
 // ====================== EPISODIOS ======================
 
-override fun episodeListRequest(anime: SAnime): Request {
-    return GET(
+    override fun episodeListRequest(anime: SAnime): Request = GET(
         "$baseUrl${anime.url}",
         headers,
     )
-}
 
-override fun episodeListParse(
-    response: Response,
-): List<SEpisode> {
-
-    val document = response.asJsoup()
+    override fun episodeListParse(
+        response: Response,
+    ): List<SEpisode> {
+        val document = response.asJsoup()
 
     /*
      * AnimeNeon muestra los episodios directamente
@@ -336,26 +330,26 @@ override fun episodeListParse(
      * JavaScript "episodes".
      */
 
-    val episodeElements = document.select(
-        "a.a2-ep-card[href^=/ver/]",
-    )
+        val episodeElements = document.select(
+            "a.a2-ep-card[href^=/ver/]",
+        )
 
-    return episodeElements
-        .mapNotNull { element ->
+        return episodeElements
+            .mapNotNull { element ->
 
-            // ======================
-            // URL DEL EPISODIO
-            // ======================
+                // ======================
+                // URL DEL EPISODIO
+                // ======================
 
-            val href = element.attr("href")
+                val href = element.attr("href")
 
-            if (href.isBlank()) {
-                return@mapNotNull null
-            }
+                if (href.isBlank()) {
+                    return@mapNotNull null
+                }
 
-            // ======================
-            // NÚMERO DEL EPISODIO
-            // ======================
+                // ======================
+                // NÚMERO DEL EPISODIO
+                // ======================
 
             /*
              * Primero usamos el elemento que AnimeNeon
@@ -367,17 +361,17 @@ override fun episodeListParse(
              * "Ep 1175"
              */
 
-            val numberText = element
-                .selectFirst(".a2-ep-num")
-                ?.text()
-                ?.trim()
+                val numberText = element
+                    .selectFirst(".a2-ep-num")
+                    ?.text()
+                    ?.trim()
 
-            var episodeNumber = numberText
-                ?.replace(
-                    Regex("[^0-9.]"),
-                    "",
-                )
-                ?.toFloatOrNull()
+                var episodeNumber = numberText
+                    ?.replace(
+                        Regex("[^0-9.]"),
+                        "",
+                    )
+                    ?.toFloatOrNull()
 
             /*
              * Si por alguna razón .a2-ep-num no existe,
@@ -391,9 +385,9 @@ override fun episodeListParse(
              *                   1175
              */
 
-            if (episodeNumber == null) {
-                episodeNumber = extractEpisodeNumber(href)
-            }
+                if (episodeNumber == null) {
+                    episodeNumber = extractEpisodeNumber(href)
+                }
 
             /*
              * Si no podemos determinar el número,
@@ -401,35 +395,33 @@ override fun episodeListParse(
              * necesita episode_number para ordenarlo.
              */
 
-            if (episodeNumber == null) {
-                return@mapNotNull null
+                if (episodeNumber == null) {
+                    return@mapNotNull null
+                }
+
+                // ======================
+                // TÍTULO
+                // ======================
+
+                val title = element
+                    .selectFirst(".a2-ep-title")
+                    ?.text()
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() }
+                    ?: "Episodio ${formatEpisodeNumber(episodeNumber)}"
+
+                // ======================
+                // CREAR EPISODIO
+                // ======================
+
+                SEpisode.create().apply {
+                    url = href
+
+                    name = title
+
+                    episode_number = episodeNumber
+                }
             }
-
-            // ======================
-            // TÍTULO
-            // ======================
-
-            val title = element
-                .selectFirst(".a2-ep-title")
-                ?.text()
-                ?.trim()
-                ?.takeIf { it.isNotBlank() }
-                ?: "Episodio ${formatEpisodeNumber(episodeNumber)}"
-
-            // ======================
-            // CREAR EPISODIO
-            // ======================
-
-            SEpisode.create().apply {
-
-                url = href
-
-                name = title
-
-                episode_number = episodeNumber
-            }
-
-        }
         /*
          * AnimeNeon ya presenta los episodios de más
          * nuevo a más antiguo, pero ordenamos nosotros
@@ -444,18 +436,16 @@ override fun episodeListParse(
          * 2
          * 1
          */
-        .sortedByDescending {
-            it.episode_number
-        }
-}
-
+            .sortedByDescending {
+                it.episode_number
+            }
+    }
 
 // ====================== NÚMERO DE EPISODIO ======================
 
-private fun extractEpisodeNumber(
-    url: String,
-): Float? {
-
+    private fun extractEpisodeNumber(
+        url: String,
+    ): Float? {
     /*
      * Formato actual de AnimeNeon:
      *
@@ -465,29 +455,25 @@ private fun extractEpisodeNumber(
      * flexible para otros animes.
      */
 
-    val match = Regex(
-        """-(\d+)\.[A-Za-z0-9_-]+$""",
-    ).find(url)
+        val match = Regex(
+            """-(\d+)\.[A-Za-z0-9_-]+$""",
+        ).find(url)
 
-    return match
-        ?.groupValues
-        ?.getOrNull(1)
-        ?.toFloatOrNull()
-}
-
+        return match
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toFloatOrNull()
+    }
 
 // ====================== FORMATO DEL NÚMERO ======================
 
-private fun formatEpisodeNumber(
-    number: Float,
-): String {
-
-    return if (number % 1f == 0f) {
+    private fun formatEpisodeNumber(
+        number: Float,
+    ): String = if (number % 1f == 0f) {
         number.toInt().toString()
     } else {
         number.toString()
     }
-}
     // ====================== VIDEOS ======================
 
     override fun videoListRequest(
