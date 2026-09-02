@@ -1,13 +1,13 @@
 package eu.kanade.tachiyomi.animeextension.es.animeneon
 
-import androidx.preference.ListPreference
-import androidx.preference.PreferenceScreen
 import aniyomi.lib.luluextractor.LuluExtractor
 import aniyomi.lib.mixdropextractor.MixDropExtractor
 import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
 import aniyomi.lib.universalextractor.UniversalExtractor
 import aniyomi.lib.voeextractor.VoeExtractor
+import androidx.preference.ListPreference
+import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -18,10 +18,13 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
-import kotlinx.serialization.json.Json
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 class Animeneon :
     AnimeHttpSource(),
@@ -39,7 +42,7 @@ class Animeneon :
     private val prefServerKey = "preferred_server"
     private val prefQualityKey = "preferred_quality"
 
-    private val defaultServer = "Voe"
+    private val defaultServer = "Mp4upload"
     private val defaultQuality = "1080p"
 
     private val serverList = arrayOf(
@@ -47,7 +50,8 @@ class Animeneon :
         "Voe",
         "Mixdrop",
         "Streamtape",
-        "Lulustream",
+        "Lulu",
+        "Universal",
     )
 
     private val qualityList = arrayOf(
@@ -113,10 +117,12 @@ class Animeneon :
 
     // ====================== POPULAR ======================
 
-    override fun popularAnimeRequest(page: Int): Request = GET(
-        "$baseUrl/nuevo-anime?page=$page",
-        headers,
-    )
+    override fun popularAnimeRequest(page: Int): Request {
+        return GET(
+            "$baseUrl/nuevo-anime?page=$page",
+            headers,
+        )
+    }
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val document = response.asJsoup()
@@ -141,10 +147,12 @@ class Animeneon :
 
     // ====================== ÚLTIMOS EPISODIOS ======================
 
-    override fun latestUpdatesRequest(page: Int): Request = GET(
-        "$baseUrl/episodios?page=$page",
-        headers,
-    )
+    override fun latestUpdatesRequest(page: Int): Request {
+        return GET(
+            "$baseUrl/episodios?page=$page",
+            headers,
+        )
+    }
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val document = response.asJsoup()
@@ -215,16 +223,20 @@ class Animeneon :
 
     override fun searchAnimeParse(
         response: Response,
-    ): AnimesPage = popularAnimeParse(response)
+    ): AnimesPage {
+        return popularAnimeParse(response)
+    }
 
     // ====================== DETALLE ======================
 
     override fun animeDetailsRequest(
         anime: SAnime,
-    ): Request = GET(
-        "$baseUrl${anime.url}",
-        headers,
-    )
+    ): Request {
+        return GET(
+            "$baseUrl${anime.url}",
+            headers,
+        )
+    }
 
     override fun animeDetailsParse(
         response: Response,
@@ -232,6 +244,7 @@ class Animeneon :
         val document = response.asJsoup()
 
         return SAnime.create().apply {
+
             title =
                 document.selectFirst(".a2-title")
                     ?.text()
@@ -296,196 +309,141 @@ class Animeneon :
         }
     }
 
-// ====================== EPISODIOS ======================
+    // ====================== EPISODIOS ======================
 
-    override fun episodeListRequest(anime: SAnime): Request = GET(
-        "$baseUrl${anime.url}",
-        headers,
-    )
+    override fun episodeListRequest(
+        anime: SAnime,
+    ): Request {
+        return GET(
+            "$baseUrl${anime.url}",
+            headers,
+        )
+    }
 
     override fun episodeListParse(
         response: Response,
     ): List<SEpisode> {
+
         val document = response.asJsoup()
 
-    /*
-     * AnimeNeon muestra los episodios directamente
-     * en el HTML como:
-     *
-     * <a href="/ver/one-piece-1175.WwEiJ0wZ"
-     *    class="a2-ep-card">
-     *
-     *     <div class="a2-ep-thumb-wrap">
-     *         <span class="a2-ep-num">Ep 1175</span>
-     *     </div>
-     *
-     *     <div class="a2-ep-info">
-     *         <p class="a2-ep-title">...</p>
-     *         <p class="a2-ep-subtitle">Episodio 1175</p>
-     *     </div>
-     *
-     * </a>
-     *
-     * Por lo tanto no necesitamos parsear el objeto
-     * JavaScript "episodes".
-     */
+        val script = document
+            .select("script:containsData(episodes)")
+            .firstOrNull()
+            ?: return emptyList()
 
-        val episodeElements = document.select(
-            "a.a2-ep-card[href^=/ver/]",
+        val scriptData = script.data()
+
+        val jsonRegex = Regex(
+            """data:\s*(\{[^{}]*"episodes"\s*:\s*\[[\s\S]*?\][^{}]*\})""",
         )
 
-        return episodeElements
-            .mapNotNull { element ->
+        val match = jsonRegex.find(scriptData)
 
-                // ======================
-                // URL DEL EPISODIO
-                // ======================
+        val jsonString =
+            match?.groupValues?.get(1)
+                ?: return emptyList()
 
-                val href = element.attr("href")
+        return try {
 
-                if (href.isBlank()) {
-                    return@mapNotNull null
+            val jsonObject =
+                json.parseToJsonElement(
+                    jsonString,
+                ).jsonObject
+
+            val animeObject =
+                jsonObject["anime"]?.jsonObject
+                    ?: jsonObject
+
+            val episodesArray =
+                animeObject["episodes"]
+                    ?.jsonArray
+                    ?: return emptyList()
+
+            episodesArray
+                .mapNotNull { element ->
+
+                    val obj = element.jsonObject
+
+                    val number =
+                        obj["number"]
+                            ?.jsonPrimitive
+                            ?.content
+                            ?.toFloatOrNull()
+                            ?: return@mapNotNull null
+
+                    val title =
+                        obj["title"]
+                            ?.jsonPrimitive
+                            ?.content
+                            ?: "Episodio $number"
+
+                    val slug =
+                        obj["slug"]
+                            ?.jsonPrimitive
+                            ?.content
+                            ?: return@mapNotNull null
+
+                    SEpisode.create().apply {
+                        url = "/ver/$slug"
+                        name = title
+                        episode_number = number
+                    }
+                }
+                .sortedByDescending {
+                    it.episode_number
                 }
 
-                // ======================
-                // NÚMERO DEL EPISODIO
-                // ======================
+        } catch (e: Exception) {
 
-            /*
-             * Primero usamos el elemento que AnimeNeon
-             * proporciona específicamente para el número:
-             *
-             * .a2-ep-num
-             *
-             * Ejemplo:
-             * "Ep 1175"
-             */
+            // Fallback HTML
 
-                val numberText = element
-                    .selectFirst(".a2-ep-num")
-                    ?.text()
-                    ?.trim()
+            val episodeElements = document.select(
+                ".a2-ep-list a.a2-ep-card",
+            )
 
-                var episodeNumber = numberText
-                    ?.replace(
-                        Regex("[^0-9.]"),
-                        "",
-                    )
-                    ?.toFloatOrNull()
+            episodeElements
+                .mapNotNull { element ->
 
-            /*
-             * Si por alguna razón .a2-ep-num no existe,
-             * usamos la URL como segundo método.
-             *
-             * Ejemplo:
-             *
-             * /ver/one-piece-1175.WwEiJ0wZ
-             *
-             *                     ↑
-             *                   1175
-             */
+                    val href = element.attr("href")
 
-                if (episodeNumber == null) {
-                    episodeNumber = extractEpisodeNumber(href)
+                    val number =
+                        extractEpisodeNumber(href)
+                            ?: return@mapNotNull null
+
+                    val name =
+                        element
+                            .selectFirst(".a2-ep-title")
+                            ?.text()
+                            ?.trim()
+                            ?: "Episodio $number"
+
+                    SEpisode.create().apply {
+                        url = href
+                        this.name = name
+                        episode_number = number
+                    }
                 }
-
-            /*
-             * Si no podemos determinar el número,
-             * descartamos el episodio porque Aniyomi
-             * necesita episode_number para ordenarlo.
-             */
-
-                if (episodeNumber == null) {
-                    return@mapNotNull null
+                .sortedByDescending {
+                    it.episode_number
                 }
-
-                // ======================
-                // TÍTULO
-                // ======================
-
-                val title = element
-                    .selectFirst(".a2-ep-title")
-                    ?.text()
-                    ?.trim()
-                    ?.takeIf { it.isNotBlank() }
-                    ?: "Episodio ${formatEpisodeNumber(episodeNumber)}"
-
-                // ======================
-                // CREAR EPISODIO
-                // ======================
-
-                SEpisode.create().apply {
-                    url = href
-
-                    name = title
-
-                    episode_number = episodeNumber
-                }
-            }
-        /*
-         * AnimeNeon ya presenta los episodios de más
-         * nuevo a más antiguo, pero ordenamos nosotros
-         * explícitamente para garantizar el comportamiento.
-         *
-         * Resultado:
-         *
-         * 1175
-         * 1174
-         * 1173
-         * ...
-         * 2
-         * 1
-         */
-            .sortedByDescending {
-                it.episode_number
-            }
+        }
     }
 
-// ====================== NÚMERO DE EPISODIO ======================
-
-    private fun extractEpisodeNumber(
-        url: String,
-    ): Float? {
-    /*
-     * Formato actual de AnimeNeon:
-     *
-     * /ver/one-piece-1175.WwEiJ0wZ
-     *
-     * También dejamos el patrón suficientemente
-     * flexible para otros animes.
-     */
-
-        val match = Regex(
-            """-(\d+)\.[A-Za-z0-9_-]+$""",
-        ).find(url)
-
-        return match
-            ?.groupValues
-            ?.getOrNull(1)
-            ?.toFloatOrNull()
-    }
-
-// ====================== FORMATO DEL NÚMERO ======================
-
-    private fun formatEpisodeNumber(
-        number: Float,
-    ): String = if (number % 1f == 0f) {
-        number.toInt().toString()
-    } else {
-        number.toString()
-    }
     // ====================== VIDEOS ======================
 
     override fun videoListRequest(
         episode: SEpisode,
-    ): Request = GET(
-        "$baseUrl${episode.url}",
-        headers,
-    )
+    ): Request {
+        return GET(
+            "$baseUrl${episode.url}",
+            headers,
+        )
+    }
 
     override fun videoListParse(
         response: Response,
     ): List<Video> {
+
         val document = response.asJsoup()
 
         val script = document
@@ -525,6 +483,7 @@ class Animeneon :
         var searchPosition = 0
 
         while (searchPosition < groupsArray.length) {
+
             val serversStart = findKey(
                 groupsArray,
                 "servers",
@@ -558,6 +517,7 @@ class Animeneon :
                 extractObjects(serversArray)
 
             for (serverObj in serverObjects) {
+
                 val link = extractStringProperty(
                     serverObj,
                     "link",
@@ -596,7 +556,7 @@ class Animeneon :
 
             searchPosition =
                 serversStart +
-                serversArray.length
+                    serversArray.length
         }
 
         return allVideos
@@ -608,6 +568,7 @@ class Animeneon :
         url: String,
         hostKey: String,
     ): List<Video> {
+
         val normalizedHost =
             hostKey.lowercase()
 
@@ -630,7 +591,8 @@ class Animeneon :
 
         val fallbackServer =
             matchedServer
-                ?: serverConventions.firstOrNull { (_, aliases) ->
+                ?: serverConventions.firstOrNull {
+                    (_, aliases) ->
 
                     aliases.any { alias ->
 
@@ -642,7 +604,9 @@ class Animeneon :
                 }?.first
 
         return when (fallbackServer) {
+
             "mp4upload" -> {
+
                 /*
                  * IMPORTANTE:
                  * Antes se utilizaba Headers.headersOf(),
@@ -652,12 +616,13 @@ class Animeneon :
                  */
                 mp4uploadExtractor.videosFromUrl(
                     url,
-                    headers = headers.headersOf(),
+                    headers = headers,
                     prefix = "Mp4upload - ",
                 )
             }
 
             "voe" -> {
+
                 voeExtractor.videosFromUrl(
                     url,
                     prefix = "Voe - ",
@@ -665,13 +630,16 @@ class Animeneon :
             }
 
             "mixdrop" -> {
+
                 mixdropExtractor.videosFromUrl(
                     url,
                     prefix = "Mixdrop - ",
+                    lang = "es",
                 )
             }
 
             "streamtape" -> {
+
                 val video =
                     streamTapeExtractor.videoFromUrl(
                         url,
@@ -686,13 +654,15 @@ class Animeneon :
             }
 
             "lulu" -> {
+
                 luluExtractor.videosFromUrl(
                     url,
-                    prefix = "Lulustream - ",
+                    prefix = "Lulu - ",
                 )
             }
 
             else -> {
+
                 /*
                  * Si AnimeNeon añade un servidor nuevo,
                  * intentamos UniversalExtractor.
@@ -723,6 +693,7 @@ class Animeneon :
         text: String,
         key: String,
     ): String? {
+
         val position = findKey(
             text,
             key,
@@ -748,6 +719,7 @@ class Animeneon :
         key: String,
         start: Int,
     ): Int {
+
         val pattern = Regex(
             """(?:"|')?${
                 Regex.escape(key)
@@ -770,6 +742,7 @@ class Animeneon :
         text: String,
         keyPosition: Int,
     ): String? {
+
         val colon = text.indexOf(
             ':',
             keyPosition,
@@ -817,15 +790,18 @@ class Animeneon :
         openChar: Char,
         closeChar: Char,
     ): Int? {
+
         var depth = 0
         var inString = false
         var stringChar = '\u0000'
         var escaped = false
 
         for (i in start until text.length) {
+
             val char = text[i]
 
             if (inString) {
+
                 if (escaped) {
                     escaped = false
                     continue
@@ -855,6 +831,7 @@ class Animeneon :
             if (char == openChar) {
                 depth++
             } else if (char == closeChar) {
+
                 depth--
 
                 if (depth == 0) {
@@ -875,11 +852,13 @@ class Animeneon :
     private fun extractObjects(
         arrayText: String,
     ): List<String> {
+
         val objects = mutableListOf<String>()
 
         var position = 0
 
         while (position < arrayText.length) {
+
             val start =
                 arrayText.indexOf(
                     '{',
@@ -925,6 +904,7 @@ class Animeneon :
         text: String,
         key: String,
     ): String? {
+
         val regex = Regex(
             """(?:"|')?${Regex.escape(key)}(?:"|')?\s*:\s*["']([^"']+)["']""",
         )
@@ -938,6 +918,7 @@ class Animeneon :
     // ====================== ORDENAMIENTO ======================
 
     override fun List<Video>.sort(): List<Video> {
+
         val quality =
             preferences.getString(
                 prefQualityKey,
@@ -978,24 +959,28 @@ class Animeneon :
 
     // ====================== FILTROS ======================
 
-    override fun getFilterList(): AnimeFilterList = AnimeFilterList(
-        Filters.GenreFilter(),
-        Filters.ThemeFilter(),
-        Filters.DemographicFilter(),
-        Filters.YearFilter(),
-        Filters.SeasonFilter(),
-        Filters.FormatFilter(),
-        Filters.StatusFilter(),
-        Filters.LanguageFilter(),
-        Filters.OrderFilter(),
-    )
+    override fun getFilterList(): AnimeFilterList {
+        return AnimeFilterList(
+            Filters.GenreFilter(),
+            Filters.ThemeFilter(),
+            Filters.DemographicFilter(),
+            Filters.YearFilter(),
+            Filters.SeasonFilter(),
+            Filters.FormatFilter(),
+            Filters.StatusFilter(),
+            Filters.LanguageFilter(),
+            Filters.OrderFilter(),
+        )
+    }
 
     // ====================== PREFERENCIAS ======================
 
     override fun setupPreferenceScreen(
         screen: PreferenceScreen,
     ) {
+
         ListPreference(screen.context).apply {
+
             key = prefServerKey
 
             title = "Preferred Server"
@@ -1035,6 +1020,7 @@ class Animeneon :
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
+
             key = prefQualityKey
 
             title = "Preferred Quality"
@@ -1079,6 +1065,7 @@ class Animeneon :
     private fun parseAnimeCard(
         element: Element,
     ): SAnime? {
+
         val href = element.attr("href")
 
         if (!href.startsWith("/anime/")) {
@@ -1114,6 +1101,7 @@ class Animeneon :
     private fun extractEpisodeNumber(
         url: String,
     ): Float? {
+
         val regex =
             Regex("-(\\d+)\\.")
 
