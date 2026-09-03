@@ -19,6 +19,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
+import okhttp3.Headers
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -38,6 +39,13 @@ class Animeneon :
     override val id = 6957694006954649297L
     override val lang = "es"
     override val supportsLatest = true
+
+    // Headers con User-Agent personalizado para evitar bloqueos
+    override val headers: Headers = Headers.Builder()
+        .set("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Mobile Safari/537.36")
+        .set("Accept-Language", "es-ES,es;q=0.9")
+        .set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
+        .build()
 
     private val preferences by getPreferencesLazy()
     private val json by lazy { Json { ignoreUnknownKeys = true } }
@@ -119,10 +127,7 @@ class Animeneon :
     // ====================== POPULAR ======================
 
     override fun popularAnimeRequest(page: Int): Request {
-        return GET(
-            "$baseUrl/nuevo-anime?page=$page",
-            headers,
-        )
+        return GET("$baseUrl/nuevo-anime?page=$page", headers)
     }
 
     override fun popularAnimeParse(response: Response): AnimesPage {
@@ -351,11 +356,9 @@ class Animeneon :
     private fun resolveIframe(url: String): List<Video> {
         return when {
             url.contains("multiserver.sbs") -> {
-                // Usar la API de desencriptación
                 decryptMultiserver(url)
             }
             else -> {
-                // Si es otro dominio, usar UniversalExtractor directamente
                 universalExtractor.videosFromUrl(url, headers)
             }
         }
@@ -363,11 +366,9 @@ class Animeneon :
 
     private fun decryptMultiserver(iframeUrl: String): List<Video> {
         try {
-            // Extraer el ID del embed de la URL
             val embedId = iframeUrl.substringAfterLast("/")
             if (embedId.isEmpty()) return emptyList()
 
-            // Obtener el HTML del iframe para extraer los strings ofuscados
             val iframeResponse = client.newCall(GET(iframeUrl, headers)).execute()
             iframeResponse.use { resp ->
                 if (!resp.isSuccessful) return emptyList()
@@ -389,22 +390,21 @@ class Animeneon :
                     try {
                         val apiUrl = "https://multiserver.sbs/embed/api/decrypt-stream"
                         val requestBody = """{"encrypted":"$encrypted"}"""
+                        val apiHeaders = headers.newBuilder()
+                            .set("Content-Type", "application/json")
+                            .set("Referer", "https://multiserver.sbs/")
+                            .set("Origin", "https://multiserver.sbs")
+                            .build()
                         val apiRequest = POST(
                             apiUrl,
-                            headers = headers.newBuilder()
-                                .set("Content-Type", "application/json")
-                                .set("Referer", "https://multiserver.sbs/")
-                                .set("Origin", "https://multiserver.sbs")
-                                .build(),
+                            headers = apiHeaders,
                             body = requestBody.toRequestBody("application/json".toMediaType()),
                         )
                         val apiResponse = client.newCall(apiRequest).execute()
                         apiResponse.use { apiResp ->
                             if (apiResp.isSuccessful) {
                                 val jsonString = apiResp.body?.string() ?: ""
-                                // Intentar parsear la URL de varias formas
                                 val videoUrl = run {
-                                    // Primero intentar con "data.url"
                                     val dataUrlRegex = Regex(""""data"\s*:\s*\{[^}]*"url"\s*:\s*"([^"]+)""")
                                     dataUrlRegex.find(jsonString)?.groupValues?.get(1)
                                         ?: Regex(""""url"\s*:\s*"([^"]+)""").find(jsonString)?.groupValues?.get(1)
