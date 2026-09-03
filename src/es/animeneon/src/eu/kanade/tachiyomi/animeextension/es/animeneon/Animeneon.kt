@@ -21,6 +21,7 @@ import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Headers
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
@@ -40,11 +41,16 @@ class Animeneon :
     override val lang = "es"
     override val supportsLatest = true
 
-    // Headers con User-Agent personalizado para evitar bloqueos
-    override val headers: Headers = Headers.Builder()
-        .set("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Mobile Safari/537.36")
-        .set("Accept-Language", "es-ES,es;q=0.9")
-        .set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
+    // Cliente personalizado con User-Agent y Accept-Language mediante interceptor
+    override val client: OkHttpClient = super.client.newBuilder()
+        .addInterceptor { chain ->
+            val original = chain.request()
+            val request = original.newBuilder()
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Mobile Safari/537.36")
+                .header("Accept-Language", "es-ES,es;q=0.9")
+                .build()
+            chain.proceed(request)
+        }
         .build()
 
     private val preferences by getPreferencesLazy()
@@ -390,7 +396,8 @@ class Animeneon :
                     try {
                         val apiUrl = "https://multiserver.sbs/embed/api/decrypt-stream"
                         val requestBody = """{"encrypted":"$encrypted"}"""
-                        val apiHeaders = headers.newBuilder()
+                        // Construir headers específicos para la API (el User-Agent ya lo pone el interceptor)
+                        val apiHeaders = Headers.Builder()
                             .set("Content-Type", "application/json")
                             .set("Referer", "https://multiserver.sbs/")
                             .set("Origin", "https://multiserver.sbs")
