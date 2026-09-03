@@ -48,7 +48,6 @@ class Animeneon :
     private val defaultServer = "Mp4upload"
     private val defaultQuality = "1080p"
 
-    // Lista visible en preferencias (sin Universal)
     private val serverList = arrayOf(
         "Mp4upload",
         "Voe",
@@ -64,8 +63,6 @@ class Animeneon :
     )
 
     private val qualityRegex = Regex("""(\d+)p""")
-
-    // ====================== EXTRACTORES ======================
 
     private val voeExtractor by lazy {
         VoeExtractor(client, headers)
@@ -130,217 +127,95 @@ class Animeneon :
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val document = response.asJsoup()
-
-        val elements = document.select(
-            "div.grid a[href^=/anime/]",
-        )
-
-        val animeList = elements.mapNotNull { element ->
-            parseAnimeCard(element)
-        }
-
-        val hasNextPage = document.selectFirst(
-            "a[rel=next]",
-        ) != null
-
-        return AnimesPage(
-            animeList,
-            hasNextPage,
-        )
+        val elements = document.select("div.grid a[href^=/anime/]")
+        val animeList = elements.mapNotNull { parseAnimeCard(it) }
+        val hasNextPage = document.selectFirst("a[rel=next]") != null
+        return AnimesPage(animeList, hasNextPage)
     }
 
     // ====================== ÚLTIMOS EPISODIOS ======================
 
     override fun latestUpdatesRequest(page: Int): Request {
-        return GET(
-            "$baseUrl/episodios?page=$page",
-            headers,
-        )
+        return GET("$baseUrl/episodios?page=$page", headers)
     }
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val document = response.asJsoup()
-
-        val episodeItems = document.select(
-            "div.grid a[href^=/ver/]",
-        )
-
+        val episodeItems = document.select("div.grid a[href^=/ver/]")
         val animeList = episodeItems.mapNotNull { link ->
             val episodeUrl = link.attr("abs:href")
-
-            val episodeSlug = episodeUrl
-                .substringAfter("/ver/")
-
-            val animeSlug = episodeSlug.replace(
-                Regex("-\\d+\\.[A-Za-z0-9]+$"),
-                "",
-            )
-
+            val episodeSlug = episodeUrl.substringAfter("/ver/")
+            val animeSlug = episodeSlug.replace(Regex("-\\d+\\.[A-Za-z0-9]+$"), "")
             val animeUrl = "/anime/$animeSlug"
-
-            val titleElement = link.selectFirst(
-                ".text-\\[13px\\].font-semibold, .line-clamp-1",
-            )
-
-            val title = titleElement
-                ?.text()
-                ?.trim()
-                ?: return@mapNotNull null
-
+            val titleElement = link.selectFirst(".text-\\[13px\\].font-semibold, .line-clamp-1")
+            val title = titleElement?.text()?.trim() ?: return@mapNotNull null
             val img = link.selectFirst("img")
             val imageUrl = img?.attr("abs:src")
-
             SAnime.create().apply {
                 url = animeUrl
                 this.title = title
                 thumbnail_url = imageUrl
                 description = "Último episodio disponible"
             }
-        }.distinctBy {
-            it.url
-        }
-
-        val hasNextPage = document.selectFirst(
-            "a[rel=next]",
-        ) != null
-
-        return AnimesPage(
-            animeList,
-            hasNextPage,
-        )
+        }.distinctBy { it.url }
+        val hasNextPage = document.selectFirst("a[rel=next]") != null
+        return AnimesPage(animeList, hasNextPage)
     }
 
     // ====================== BÚSQUEDA ======================
 
-    override fun searchAnimeRequest(
-        page: Int,
-        query: String,
-        filters: AnimeFilterList,
-    ): Request {
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val filterParams = filters.buildFilterParams()
-
-        return GET(
-            "$baseUrl/browse?q=$query&page=$page$filterParams",
-            headers,
-        )
+        return GET("$baseUrl/browse?q=$query&page=$page$filterParams", headers)
     }
 
-    override fun searchAnimeParse(
-        response: Response,
-    ): AnimesPage {
+    override fun searchAnimeParse(response: Response): AnimesPage {
         return popularAnimeParse(response)
     }
 
     // ====================== DETALLE ======================
 
-    override fun animeDetailsRequest(
-        anime: SAnime,
-    ): Request {
-        return GET(
-            "$baseUrl${anime.url}",
-            headers,
-        )
+    override fun animeDetailsRequest(anime: SAnime): Request {
+        return GET("$baseUrl${anime.url}", headers)
     }
 
-    override fun animeDetailsParse(
-        response: Response,
-    ): SAnime {
+    override fun animeDetailsParse(response: Response): SAnime {
         val document = response.asJsoup()
-
         return SAnime.create().apply {
-
-            title =
-                document.selectFirst(".a2-title")
-                    ?.text()
-                    ?.trim()
-                    ?: document.selectFirst("h1, h2.text-2xl")
-                        ?.text()
-                        ?.trim()
-                    ?: "Sin título"
-
-            thumbnail_url =
-                document.selectFirst(".a2-poster-img")
-                    ?.attr("abs:src")
-                    ?: document
-                        .selectFirst(
-                            "img[src*=/uploads/anime/]",
-                        )
-                        ?.attr("abs:src")
-
-            description =
-                document.selectFirst(".a2-desc-text")
-                    ?.text()
-                    ?.trim()
-                    ?: document.selectFirst(
-                        "p.text-sm.leading-relaxed, .sinopsis",
-                    )
-                        ?.text()
-                        ?.trim()
-
-            genre = document
-                .select(".a2-genre-tag")
-                .joinToString(", ") {
-                    it.text().trim()
-                }
-
-            val statusElement = document.selectFirst(
-                ".a2-badge-status",
-            )
-
-            val statusText = statusElement
-                ?.text()
-                ?.trim()
-
+            title = document.selectFirst(".a2-title")?.text()?.trim()
+                ?: document.selectFirst("h1, h2.text-2xl")?.text()?.trim()
+                ?: "Sin título"
+            thumbnail_url = document.selectFirst(".a2-poster-img")?.attr("abs:src")
+                ?: document.selectFirst("img[src*=/uploads/anime/]")?.attr("abs:src")
+            description = document.selectFirst(".a2-desc-text")?.text()?.trim()
+                ?: document.selectFirst("p.text-sm.leading-relaxed, .sinopsis")?.text()?.trim()
+            genre = document.select(".a2-genre-tag").joinToString(", ") { it.text().trim() }
+            val statusElement = document.selectFirst(".a2-badge-status")
+            val statusText = statusElement?.text()?.trim()
             status = when {
-                statusText?.contains(
-                    "Finalizado",
-                    ignoreCase = true,
-                ) == true -> {
-                    SAnime.COMPLETED
-                }
-
-                statusText?.contains(
-                    "Emisión",
-                    ignoreCase = true,
-                ) == true -> {
-                    SAnime.ONGOING
-                }
-
-                else -> {
-                    SAnime.UNKNOWN
-                }
+                statusText?.contains("Finalizado", ignoreCase = true) == true -> SAnime.COMPLETED
+                statusText?.contains("Emisión", ignoreCase = true) == true -> SAnime.ONGOING
+                else -> SAnime.UNKNOWN
             }
         }
     }
 
     // ====================== EPISODIOS ======================
 
-    override fun episodeListRequest(
-        anime: SAnime,
-    ): Request {
-        return GET(
-            "$baseUrl${anime.url}",
-            headers,
-        )
+    override fun episodeListRequest(anime: SAnime): Request {
+        return GET("$baseUrl${anime.url}", headers)
     }
 
-    override fun episodeListParse(
-        response: Response,
-    ): List<SEpisode> {
+    override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()
         val episodes = mutableListOf<SEpisode>()
 
-        // 1. Intentar obtener el número total de episodios
         var totalEpisodes = 0
-
-        // a) Desde el texto de paginación: "Mostrando 1 a 12 de 1176"
         val paginationInfo = document.selectFirst(".a2-pagination-info")?.text()
         if (paginationInfo != null) {
             val match = Regex("de\\s+(\\d+)").find(paginationInfo)
             totalEpisodes = match?.groupValues?.get(1)?.toIntOrNull() ?: 0
         }
-
-        // b) Desde la fila de información "Episodios" en la barra lateral
         if (totalEpisodes == 0) {
             val infoRows = document.select(".a2-info-row")
             for (row in infoRows) {
@@ -353,13 +228,11 @@ class Animeneon :
             }
         }
 
-        // 2. Obtener slug y nanoid desde la URL actual
         val path = response.request.url.pathSegments
         val lastSegment = path.lastOrNull() ?: return emptyList()
         val animeSlug = lastSegment.substringBefore(".")
         val nanoid = lastSegment.substringAfter(".")
 
-        // 3. Si tenemos el total, generar todos los episodios (más nuevo → más antiguo)
         if (totalEpisodes > 0) {
             for (i in totalEpisodes downTo 1) {
                 SEpisode.create().apply {
@@ -371,7 +244,6 @@ class Animeneon :
             return episodes
         }
 
-        // Fallback: extraer solo los episodios visibles (puede ser la primera página o solo 12)
         val episodeElements = document.select(".a2-ep-list a.a2-ep-card")
         return episodeElements.mapNotNull { element ->
             val href = element.attr("href")
@@ -387,22 +259,16 @@ class Animeneon :
 
     // ====================== VIDEOS ======================
 
-    override fun videoListRequest(
-        episode: SEpisode,
-    ): Request {
-        return GET(
-            "$baseUrl${episode.url}",
-            headers,
-        )
+    override fun videoListRequest(episode: SEpisode): Request {
+        return GET("$baseUrl${episode.url}", headers)
     }
 
-    override fun videoListParse(
-        response: Response,
-    ): List<Video> {
+    override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
         val allVideos = mutableListOf<Video>()
+        val seenUrls = mutableSetOf<String>()
 
-        // ========== MÉTODO 1: Extraer del script 'groups' (principal) ==========
+        // Método 1: Script 'groups'
         val script = document.select("script:containsData(groups)").firstOrNull()
         if (script != null) {
             val scriptData = script.data()
@@ -428,18 +294,29 @@ class Animeneon :
                             continue
                         }
                         val videos = resolveServer(link, hostKey)
-                        allVideos.addAll(videos)
+                        for (video in videos) {
+                            if (seenUrls.add(video.url)) {
+                                allVideos.add(video)
+                            }
+                        }
                     }
                     searchPosition = serversStart + serversArray.length
                 }
             }
         }
 
-        // ========== MÉTODO 2: Reproductor intermedio (multiserver.sbs) ==========
-        // Se ejecuta solo si el primer método no encontró videos
+        // Método 2: Iframe (reproductor intermedio)
         if (allVideos.isEmpty()) {
-            val intermediateVideos = parseIntermediatePlayer(response)
-            allVideos.addAll(intermediateVideos)
+            val iframe = document.selectFirst("iframe[src]")
+            if (iframe != null) {
+                val iframeUrl = iframe.attr("abs:src")
+                val videos = resolveIframe(iframeUrl)
+                for (video in videos) {
+                    if (seenUrls.add(video.url)) {
+                        allVideos.add(video)
+                    }
+                }
+            }
         }
 
         return allVideos
@@ -447,145 +324,109 @@ class Animeneon :
 
     // ====================== RESOLVER SERVIDOR ======================
 
-    private fun resolveServer(
-        url: String,
-        hostKey: String,
-    ): List<Video> {
-
-        val normalizedHost =
-            hostKey.lowercase()
-
-        val matchedServer =
-            serverConventions.firstOrNull { (_, aliases) ->
-                aliases.any { alias ->
-                    normalizedHost.contains(alias.lowercase())
-                }
-            }?.first
-
-        val fallbackServer =
-            matchedServer
-                ?: serverConventions.firstOrNull { (_, aliases) ->
-                    aliases.any { alias ->
-                        url.contains(alias, ignoreCase = true)
-                    }
-                }?.first
+    private fun resolveServer(url: String, hostKey: String): List<Video> {
+        val normalizedHost = hostKey.lowercase()
+        val matchedServer = serverConventions.firstOrNull { (_, aliases) ->
+            aliases.any { alias -> normalizedHost.contains(alias.lowercase()) }
+        }?.first
+        val fallbackServer = matchedServer ?: serverConventions.firstOrNull { (_, aliases) ->
+            aliases.any { alias -> url.contains(alias, ignoreCase = true) }
+        }?.first
 
         return when (fallbackServer) {
-
-            "mp4upload" -> {
-                mp4uploadExtractor.videosFromUrl(
-                    url,
-                    headers = headers,
-                    prefix = "Mp4upload - ",
-                )
-            }
-
-            "voe" -> {
-                voeExtractor.videosFromUrl(
-                    url,
-                    prefix = "Voe - ",
-                )
-            }
-
-            "mixdrop" -> {
-                mixdropExtractor.videosFromUrl(
-                    url,
-                    prefix = "Mixdrop - ",
-                    lang = "es",
-                )
-            }
-
+            "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, headers = headers, prefix = "Mp4upload - ")
+            "voe" -> voeExtractor.videosFromUrl(url, prefix = "Voe - ")
+            "mixdrop" -> mixdropExtractor.videosFromUrl(url, prefix = "Mixdrop - ", lang = "es")
             "streamtape" -> {
-                val video =
-                    streamTapeExtractor.videoFromUrl(
-                        url,
-                        quality = "Streamtape",
-                    )
+                val video = streamTapeExtractor.videoFromUrl(url, quality = "Streamtape")
                 if (video != null) listOf(video) else emptyList()
             }
+            "lulu" -> luluExtractor.videosFromUrl(url, prefix = "Lulu - ")
+            else -> universalExtractor.videosFromUrl(url, headers)
+        }
+    }
 
-            "lulu" -> {
-                luluExtractor.videosFromUrl(
-                    url,
-                    prefix = "Lulu - ",
-                )
+    // ====================== RESOLVER IFRAME ======================
+
+    private fun resolveIframe(url: String): List<Video> {
+        return when {
+            url.contains("multiserver.sbs") -> {
+                // Usar la API de desencriptación
+                decryptMultiserver(url)
             }
-
             else -> {
-                // Fallback: UniversalExtractor
-                universalExtractor.videosFromUrl(
-                    url,
-                    headers,
-                )
+                // Si es otro dominio, usar UniversalExtractor directamente
+                universalExtractor.videosFromUrl(url, headers)
             }
         }
     }
 
-    // ====================== REPRODUCTOR INTERMEDIO (multiserver.sbs) ======================
+    private fun decryptMultiserver(iframeUrl: String): List<Video> {
+        try {
+            // Extraer el ID del embed de la URL
+            val embedId = iframeUrl.substringAfterLast("/")
+            if (embedId.isEmpty()) return emptyList()
 
-    /**
-     * Detecta si la página es un reproductor intermedio de multiserver.sbs
-     * y extrae los enlaces de video mediante la API de desencriptación.
-     */
-    private fun parseIntermediatePlayer(response: Response): List<Video> {
-        val document = response.asJsoup()
-        val allVideos = mutableListOf<Video>()
+            // Obtener el HTML del iframe para extraer los strings ofuscados
+            val iframeResponse = client.newCall(GET(iframeUrl, headers)).execute()
+            iframeResponse.use { resp ->
+                if (!resp.isSuccessful) return emptyList()
+                val document = resp.asJsoup()
+                val playerItems = document.select("li[onclick^=go_to_player]")
+                if (playerItems.isEmpty()) return emptyList()
 
-        // 1. Buscar todos los elementos li con onclick="go_to_player(...)"
-        val playerItems = document.select("li[onclick^=go_to_player]")
-        if (playerItems.isEmpty()) {
-            return emptyList()
-        }
+                val encryptedStrings = playerItems.mapNotNull { element ->
+                    val onclick = element.attr("onclick")
+                    val regex = Regex("""go_to_player\s*\(\s*['"]([^'"]+)['"]\s*\)""")
+                    regex.find(onclick)?.groupValues?.get(1)
+                }
+                if (encryptedStrings.isEmpty()) return emptyList()
 
-        // 2. Extraer los strings ofuscados
-        val encryptedStrings = playerItems.mapNotNull { element ->
-            val onclick = element.attr("onclick")
-            val regex = Regex("""go_to_player\s*\(\s*['"]([^'"]+)['"]\s*\)""")
-            regex.find(onclick)?.groupValues?.get(1)
-        }
+                val allVideos = mutableListOf<Video>()
+                val seenUrls = mutableSetOf<String>()
 
-        if (encryptedStrings.isEmpty()) {
-            return emptyList()
-        }
-
-        // 3. Para cada string, llamar a la API de desencriptación
-        for (encrypted in encryptedStrings) {
-            try {
-                val apiUrl = "https://multiserver.sbs/embed/api/decrypt-stream"
-                val requestBody = """{"encrypted":"$encrypted"}"""
-                val apiRequest = POST(
-                    apiUrl,
-                    headers = headers.newBuilder()
-                        .set("Content-Type", "application/json")
-                        .build(),
-                    body = requestBody.toRequestBody("application/json".toMediaType()),
-                )
-
-                val apiResponse = client.newCall(apiRequest).execute()
-                apiResponse.use { resp ->
-                    if (resp.isSuccessful) {
-                        val json = resp.body?.string() ?: ""
-                        // Parsear el JSON manualmente
-                        val urlRegex = Regex(""""url"\s*:\s*"([^"]+)"""")
-                        val videoUrl = urlRegex.find(json)?.groupValues?.get(1)
-                        if (videoUrl != null) {
-                            // Resolver la URL del video con los extractores existentes
-                            val videos = resolveServer(videoUrl, detectHostKey(videoUrl))
-                            allVideos.addAll(videos)
+                for (encrypted in encryptedStrings) {
+                    try {
+                        val apiUrl = "https://multiserver.sbs/embed/api/decrypt-stream"
+                        val requestBody = """{"encrypted":"$encrypted"}"""
+                        val apiRequest = POST(
+                            apiUrl,
+                            headers = headers.newBuilder()
+                                .set("Content-Type", "application/json")
+                                .set("Referer", "https://multiserver.sbs/")
+                                .set("Origin", "https://multiserver.sbs")
+                                .build(),
+                            body = requestBody.toRequestBody("application/json".toMediaType()),
+                        )
+                        val apiResponse = client.newCall(apiRequest).execute()
+                        apiResponse.use { apiResp ->
+                            if (apiResp.isSuccessful) {
+                                val jsonString = apiResp.body?.string() ?: ""
+                                // Intentar parsear la URL de varias formas
+                                val videoUrl = run {
+                                    // Primero intentar con "data.url"
+                                    val dataUrlRegex = Regex(""""data"\s*:\s*\{[^}]*"url"\s*:\s*"([^"]+)""")
+                                    dataUrlRegex.find(jsonString)?.groupValues?.get(1)
+                                        ?: Regex(""""url"\s*:\s*"([^"]+)""").find(jsonString)?.groupValues?.get(1)
+                                        ?: Regex(""""url"\s*:\s*'([^']+)'""").find(jsonString)?.groupValues?.get(1)
+                                }
+                                if (videoUrl != null && seenUrls.add(videoUrl)) {
+                                    val videos = resolveServer(videoUrl, detectHostKey(videoUrl))
+                                    allVideos.addAll(videos)
+                                }
+                            }
                         }
+                    } catch (e: Exception) {
+                        // Continuar con el siguiente
                     }
                 }
-            } catch (e: Exception) {
-                // Continuar con el siguiente
+                return allVideos
             }
+        } catch (e: Exception) {
+            return emptyList()
         }
-
-        return allVideos
     }
 
-    /**
-     * Detecta el host key a partir de una URL para usar el extractor correcto.
-     */
     private fun detectHostKey(url: String): String {
         return when {
             url.contains("byseqekaho.com") -> "byseqekaho.com"
@@ -600,264 +441,91 @@ class Animeneon :
 
     // ====================== PARSER JAVASCRIPT ======================
 
-    /**
-     * Encuentra una propiedad y devuelve el array que comienza después de ella.
-     */
-    private fun extractArrayAfterKey(
-        text: String,
-        key: String,
-    ): String? {
-
-        val position = findKey(
-            text,
-            key,
-            0,
-        )
-
-        if (position == -1) {
-            return null
-        }
-
-        return extractArrayAt(
-            text,
-            position,
-        )
+    private fun extractArrayAfterKey(text: String, key: String): String? {
+        val position = findKey(text, key, 0)
+        if (position == -1) return null
+        return extractArrayAt(text, position)
     }
 
-    /**
-     * Busca una key JavaScript ignorando si está entre comillas o no.
-     */
-    private fun findKey(
-        text: String,
-        key: String,
-        start: Int,
-    ): Int {
-
-        val pattern = Regex(
-            """(?:"|')?${
-                Regex.escape(key)
-            }(?:"|')?\s*:""",
-        )
-
-        val match = pattern.find(
-            text,
-            start,
-        )
-
-        return match?.range?.first ?: -1
+    private fun findKey(text: String, key: String, start: Int): Int {
+        val pattern = Regex("""(?:"|')?${Regex.escape(key)}(?:"|')?\s*:""")
+        return pattern.find(text, start)?.range?.first ?: -1
     }
 
-    /**
-     * Extrae un array [] respetando arrays anidados, strings y caracteres escapados.
-     */
-    private fun extractArrayAt(
-        text: String,
-        keyPosition: Int,
-    ): String? {
-
-        val colon = text.indexOf(
-            ':',
-            keyPosition,
-        )
-
-        if (colon == -1) {
-            return null
-        }
-
+    private fun extractArrayAt(text: String, keyPosition: Int): String? {
+        val colon = text.indexOf(':', keyPosition)
+        if (colon == -1) return null
         var start = colon + 1
-
-        while (
-            start < text.length &&
-            text[start].isWhitespace()
-        ) {
-            start++
-        }
-
-        if (
-            start >= text.length ||
-            text[start] != '['
-        ) {
-            return null
-        }
-
-        val end = findMatchingBracket(
-            text,
-            start,
-            '[',
-            ']',
-        ) ?: return null
-
-        return text.substring(
-            start,
-            end + 1,
-        )
+        while (start < text.length && text[start].isWhitespace()) start++
+        if (start >= text.length || text[start] != '[') return null
+        val end = findMatchingBracket(text, start, '[', ']') ?: return null
+        return text.substring(start, end + 1)
     }
 
-    /**
-     * Encuentra el ] correspondiente al [.
-     */
-    private fun findMatchingBracket(
-        text: String,
-        start: Int,
-        openChar: Char,
-        closeChar: Char,
-    ): Int? {
-
+    private fun findMatchingBracket(text: String, start: Int, openChar: Char, closeChar: Char): Int? {
         var depth = 0
         var inString = false
         var stringChar = '\u0000'
         var escaped = false
-
         for (i in start until text.length) {
-
             val char = text[i]
-
             if (inString) {
-
                 if (escaped) {
                     escaped = false
                     continue
                 }
-
                 if (char == '\\') {
                     escaped = true
                     continue
                 }
-
                 if (char == stringChar) {
                     inString = false
                 }
-
                 continue
             }
-
-            if (
-                char == '"' ||
-                char == '\''
-            ) {
+            if (char == '"' || char == '\'') {
                 inString = true
                 stringChar = char
                 continue
             }
-
             if (char == openChar) {
                 depth++
             } else if (char == closeChar) {
-
                 depth--
-
-                if (depth == 0) {
-                    return i
-                }
+                if (depth == 0) return i
             }
         }
-
         return null
     }
 
-    /**
-     * Extrae todos los objetos { ... } de un array.
-     */
-    private fun extractObjects(
-        arrayText: String,
-    ): List<String> {
-
+    private fun extractObjects(arrayText: String): List<String> {
         val objects = mutableListOf<String>()
-
         var position = 0
-
         while (position < arrayText.length) {
-
-            val start =
-                arrayText.indexOf(
-                    '{',
-                    position,
-                )
-
-            if (start == -1) {
-                break
-            }
-
-            val end = findMatchingBracket(
-                arrayText,
-                start,
-                '{',
-                '}',
-            )
-
-            if (end == null) {
-                break
-            }
-
-            objects.add(
-                arrayText.substring(
-                    start,
-                    end + 1,
-                ),
-            )
-
+            val start = arrayText.indexOf('{', position)
+            if (start == -1) break
+            val end = findMatchingBracket(arrayText, start, '{', '}') ?: break
+            objects.add(arrayText.substring(start, end + 1))
             position = end + 1
         }
-
         return objects
     }
 
-    /**
-     * Extrae el valor de una propiedad string.
-     */
-    private fun extractStringProperty(
-        text: String,
-        key: String,
-    ): String? {
-
-        val regex = Regex(
-            """(?:"|')?${Regex.escape(key)}(?:"|')?\s*:\s*["']([^"']+)["']""",
-        )
-
-        return regex
-            .find(text)
-            ?.groupValues
-            ?.getOrNull(1)
+    private fun extractStringProperty(text: String, key: String): String? {
+        val regex = Regex("""(?:"|')?${Regex.escape(key)}(?:"|')?\s*:\s*["']([^"']+)["']""")
+        return regex.find(text)?.groupValues?.getOrNull(1)
     }
 
     // ====================== ORDENAMIENTO ======================
 
     override fun List<Video>.sort(): List<Video> {
-
-        val quality =
-            preferences.getString(
-                prefQualityKey,
-                defaultQuality,
-            ) ?: defaultQuality
-
-        val server =
-            preferences.getString(
-                prefServerKey,
-                defaultServer,
-            ) ?: defaultServer
-
+        val quality = preferences.getString(prefQualityKey, defaultQuality) ?: defaultQuality
+        val server = preferences.getString(prefServerKey, defaultServer) ?: defaultServer
         return sortedWith(
             compareBy(
-                {
-                    !it.quality.contains(
-                        server,
-                        ignoreCase = true,
-                    )
-                },
-                {
-                    !it.quality.contains(
-                        quality,
-                        ignoreCase = true,
-                    )
-                },
-                {
-                    qualityRegex
-                        .find(it.quality)
-                        ?.groupValues
-                        ?.get(1)
-                        ?.toIntOrNull()
-                        ?: 0
-                },
+                { !it.quality.contains(server, ignoreCase = true) },
+                { !it.quality.contains(quality, ignoreCase = true) },
+                { qualityRegex.find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
             ),
         )
     }
@@ -880,81 +548,31 @@ class Animeneon :
 
     // ====================== PREFERENCIAS ======================
 
-    override fun setupPreferenceScreen(
-        screen: PreferenceScreen,
-    ) {
-
+    override fun setupPreferenceScreen(screen: PreferenceScreen) {
         ListPreference(screen.context).apply {
-
             key = prefServerKey
-
-            // Título y resumen en blanco
             title = ""
             summary = ""
-
             entries = serverList
             entryValues = serverList
-
-            setDefaultValue(
-                defaultServer,
-            )
-
-            value =
-                preferences.getString(
-                    prefServerKey,
-                    defaultServer,
-                )
-
-            setOnPreferenceChangeListener {
-                    _,
-                    newValue,
-                ->
-
-                preferences
-                    .edit()
-                    .putString(
-                        prefServerKey,
-                        newValue as String,
-                    )
-                    .apply()
-
+            setDefaultValue(defaultServer)
+            value = preferences.getString(prefServerKey, defaultServer)
+            setOnPreferenceChangeListener { _, newValue ->
+                preferences.edit().putString(prefServerKey, newValue as String).apply()
                 true
             }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
-
             key = prefQualityKey
-
             title = "Preferred Quality"
             summary = "Select the quality to show first"
-
             entries = qualityList
             entryValues = qualityList
-
-            setDefaultValue(
-                defaultQuality,
-            )
-
-            value =
-                preferences.getString(
-                    prefQualityKey,
-                    defaultQuality,
-                )
-
-            setOnPreferenceChangeListener {
-                    _,
-                    newValue,
-                ->
-
-                preferences
-                    .edit()
-                    .putString(
-                        prefQualityKey,
-                        newValue as String,
-                    )
-                    .apply()
-
+            setDefaultValue(defaultQuality)
+            value = preferences.getString(prefQualityKey, defaultQuality)
+            setOnPreferenceChangeListener { _, newValue ->
+                preferences.edit().putString(prefQualityKey, newValue as String).apply()
                 true
             }
         }.also(screen::addPreference)
@@ -962,35 +580,14 @@ class Animeneon :
 
     // ====================== AUXILIARES ======================
 
-    private fun parseAnimeCard(
-        element: Element,
-    ): SAnime? {
-
+    private fun parseAnimeCard(element: Element): SAnime? {
         val href = element.attr("href")
-
-        if (!href.startsWith("/anime/")) {
-            return null
-        }
-
-        val title =
-            element
-                .selectFirst(
-                    "h3.text-\\[13px\\].font-semibold",
-                )
-                ?.text()
-                ?.trim()
-                ?: element
-                    .selectFirst("h3")
-                    ?.text()
-                    ?.trim()
-                ?: return null
-
-        val img =
-            element.selectFirst("img")
-
-        val imageUrl =
-            img?.attr("abs:src")
-
+        if (!href.startsWith("/anime/")) return null
+        val title = element.selectFirst("h3.text-\\[13px\\].font-semibold")?.text()?.trim()
+            ?: element.selectFirst("h3")?.text()?.trim()
+            ?: return null
+        val img = element.selectFirst("img")
+        val imageUrl = img?.attr("abs:src")
         return SAnime.create().apply {
             url = href
             this.title = title
@@ -998,19 +595,8 @@ class Animeneon :
         }
     }
 
-    private fun extractEpisodeNumber(
-        url: String,
-    ): Float? {
-
-        val regex =
-            Regex("-(\\d+)\\.")
-
-        val match =
-            regex.find(url)
-
-        return match
-            ?.groupValues
-            ?.get(1)
-            ?.toFloatOrNull()
+    private fun extractEpisodeNumber(url: String): Float? {
+        val regex = Regex("-(\\d+)\\.")
+        return regex.find(url)?.groupValues?.get(1)?.toFloatOrNull()
     }
 }
