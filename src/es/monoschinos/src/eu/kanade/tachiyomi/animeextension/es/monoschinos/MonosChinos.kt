@@ -27,7 +27,6 @@ import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import okhttp3.FormBody
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
@@ -41,20 +40,6 @@ class MonosChinos :
     override val id = 6957694006954649296
     override val lang = "es"
     override val supportsLatest = true
-
-    // Guardamos el cliente original antes de añadir el interceptor
-    private val originalClient = super.client
-
-    // Cliente con User-Agent para todas las peticiones propias y la mayoría de extractores
-    override val client: OkHttpClient = originalClient.newBuilder()
-        .addInterceptor { chain ->
-            val original = chain.request()
-            val request = original.newBuilder()
-                .header("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/151.0.0.0 Mobile Safari/537.36")
-                .build()
-            chain.proceed(request)
-        }
-        .build()
 
     private val preferences by getPreferencesLazy()
 
@@ -119,7 +104,7 @@ class MonosChinos :
             val animeUrl = "/anime/$animeSlugBase-sub-espanol"
 
             val title = a.selectFirst("h3.card-title")?.text()?.trim() ?: return@mapNotNull null
-            val episodeNumber = a.selectFirst("div.absolute.top-2.5")?.text()
+            val episodeNumber = a.selectFirst("div.absolute.top-2\\.5")?.text()
                 ?.replace("EP ", "")?.trim() ?: ""
 
             SAnime.create().apply {
@@ -294,20 +279,17 @@ class MonosChinos :
 
     // ====================== EXTRACTORES ======================
 
-    // Extractores que funcionan con el cliente con User‑Agent
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
     private val streamwishExtractor by lazy { StreamWishExtractor(client, headers) }
+    private val filemoonExtractor by lazy { FilemoonExtractor(client) }
     private val mixdropExtractor by lazy { MixDropExtractor(client) }
     private val doodExtractor by lazy { DoodExtractor(client) }
     private val streamTapeExtractor by lazy { StreamTapeExtractor(client) }
     private val uqloadExtractor by lazy { UqloadExtractor(client) }
     private val okruExtractor by lazy { OkruExtractor(client) }
+    private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
+    private val luluExtractor by lazy { LuluExtractor(client, headers) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
-
-    // Extractores que necesitan el cliente original (sin interceptor)
-    private val filemoonExtractor by lazy { FilemoonExtractor(originalClient) }
-    private val mp4uploadExtractor by lazy { Mp4uploadExtractor(originalClient) }
-    private val luluExtractor by lazy { LuluExtractor(originalClient, headers) }
 
     private val conventions = listOf(
         "voe" to listOf("voe", "tubelessceliolymph", "simpulumlamerop", "urochsunloath", "nathanfromsubject", "yip.", "metagnathtuggers", "donaldlineelse"),
