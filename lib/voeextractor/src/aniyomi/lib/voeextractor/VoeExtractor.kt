@@ -44,6 +44,7 @@ class VoeExtractor(private val client: OkHttpClient, private val headers: Header
 
         val decryptedJson = decryptF7(encodedString) ?: return emptyList()
         val m3u8 = decryptedJson["source"]?.jsonPrimitive?.content
+            ?.let { if (it.contains("?")) "$it&start=0" else "$it?start=0" }
         val mp4 = decryptedJson["direct_access_url"]?.jsonPrimitive?.content
 
         var cleanPrefix = prefix.trim()
