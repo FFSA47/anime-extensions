@@ -104,7 +104,7 @@ class MonosChinos :
             val animeUrl = "/anime/$animeSlugBase-sub-espanol"
 
             val title = a.selectFirst("h3.card-title")?.text()?.trim() ?: return@mapNotNull null
-            val episodeNumber = a.selectFirst("div.absolute.top-2.5")?.text()
+            val episodeNumber = a.selectFirst("div.absolute.top-2\\.5")?.text()
                 ?.replace("EP ", "")?.trim() ?: ""
 
             SAnime.create().apply {
