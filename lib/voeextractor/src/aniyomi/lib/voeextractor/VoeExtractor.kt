@@ -44,7 +44,6 @@ class VoeExtractor(private val client: OkHttpClient, private val headers: Header
 
         val decryptedJson = decryptF7(encodedString) ?: return emptyList()
         val m3u8 = decryptedJson["source"]?.jsonPrimitive?.content
-            ?.let { if (it.contains("?")) "$it&start=0" else "$it?start=0" }
         val mp4 = decryptedJson["direct_access_url"]?.jsonPrimitive?.content
 
         var cleanPrefix = prefix.trim()
@@ -69,6 +68,13 @@ class VoeExtractor(private val client: OkHttpClient, private val headers: Header
         }.getOrDefault(emptyList())
         val subHint = if (tracks.isNotEmpty()) " [CC ${tracks.size}]" else ""
 
+        if (mp4 != null) {
+            val mp4Quality = if (displayPrefix == "VOE") "VOE:MP4" else "$displayPrefix - VOE MP4"
+            videoList.add(
+                Video(mp4, mp4Quality + subHint, mp4, subtitleTracks = tracks),
+            )
+        }
+
         if (m3u8 != null) {
             playlistUtils.extractFromHls(
                 m3u8,
@@ -78,12 +84,6 @@ class VoeExtractor(private val client: OkHttpClient, private val headers: Header
                 },
                 subtitleList = tracks,
             ).let { videoList.addAll(it) }
-        }
-        if (mp4 != null) {
-            val mp4Quality = if (displayPrefix == "VOE") "VOE:MP4" else "$displayPrefix - VOE MP4"
-            videoList.add(
-                Video(mp4, mp4Quality + subHint, mp4, subtitleTracks = tracks),
-            )
         }
 
         return videoList
