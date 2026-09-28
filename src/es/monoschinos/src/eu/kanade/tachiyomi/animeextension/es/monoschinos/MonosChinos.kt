@@ -27,6 +27,7 @@ import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import okhttp3.FormBody
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
@@ -298,11 +299,27 @@ class MonosChinos :
         "uqload" to listOf("uqload"),
         "mp4upload" to listOf("mp4upload"),
         "streamwish" to listOf("wishembed", "streamwish", "strwish", "wish", "kswplayer", "swhoi", "multimovies", "uqloads", "neko-stream", "swdyu", "iplayerhls", "streamgg"),
-        "doodstream" to listOf("doodstream", "dood.", "ds2play", "doods.", "ds2video", "dooood", "d000d", "d0000d", "dooodster"),
+        "doodstream" to listOf("doodstream", "dood.", "ds2play", "doods.", "ds2video", "dooood", "d000d", "d0000d", "dooodster", "dvsplayer"),
         "mixdrop" to listOf("mixdrop"),
         "streamtape" to listOf("streamtape", "stp", "stape", "shavetape"),
         "lulu" to listOf("luluvdo", "lulu", "lulustream"),
     )
+
+    // ====================== FALLBACK DE DOMINIOS (DOODSTREAM) ======================
+
+    private val doodstreamDomains = listOf(
+        "doodstream.com",
+        "dooodster.com",
+        "dood.to",
+        "dooood.com",
+        "doods.pro",
+        "d000d.com",
+        "ds2play.com",
+        "ds2video.com",
+        "d0000d.com",
+    )
+
+    private var cachedDoodDomain: String? = null
 
     private suspend fun serverVideoResolver(url: String, serverName: String = ""): List<Video> {
         val source = url.lowercase()
@@ -323,6 +340,19 @@ class MonosChinos :
             else -> null
         }
 
+        // Fallback de dominios solo para DoodStream
+        if (effectiveMatched == "doodstream") {
+            val candidates = buildDoodCandidates(url)
+            for (candidate in candidates) {
+                val videos = tryDoodExtract(candidate)
+                if (videos.isNotEmpty()) {
+                    candidate.toHttpUrlOrNull()?.host?.let { cachedDoodDomain = it }
+                    return videos
+                }
+            }
+            return emptyList()
+        }
+
         return when (effectiveMatched) {
             "voe" -> voeExtractor.videosFromUrl(url)
             "okru" -> okruExtractor.videosFromUrl(url)
@@ -330,11 +360,33 @@ class MonosChinos :
             "uqload" -> uqloadExtractor.videosFromUrl(url)
             "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, headers)
             "streamwish" -> streamwishExtractor.videosFromUrl(url, videoNameGen = { "StreamWish:$it" })
-            "doodstream" -> doodExtractor.videosFromUrl(url, "DoodStream:")
             "mixdrop" -> mixdropExtractor.videosFromUrl(url)
             "streamtape" -> streamTapeExtractor.videosFromUrl(url)
             "lulu" -> luluExtractor.videosFromUrl(url, prefix = "LuluStream:")
             else -> universalExtractor.videosFromUrl(url, headers)
+        }
+    }
+
+    private fun buildDoodCandidates(url: String): List<String> {
+        val httpUrl = url.toHttpUrlOrNull() ?: return listOf(url)
+        val path = httpUrl.encodedPath
+        val query = httpUrl.encodedQuery
+
+        val orderedDomains = buildList {
+            cachedDoodDomain?.let { add(it) }
+            addAll(doodstreamDomains.filter { it != cachedDoodDomain })
+        }
+
+        return orderedDomains.map { host ->
+            if (query != null) "https://$host$path?$query" else "https://$host$path"
+        }
+    }
+
+    private suspend fun tryDoodExtract(url: String): List<Video> {
+        return try {
+            doodExtractor.videosFromUrl(url, "DoodStream:")
+        } catch (_: Exception) {
+            emptyList()
         }
     }
 
