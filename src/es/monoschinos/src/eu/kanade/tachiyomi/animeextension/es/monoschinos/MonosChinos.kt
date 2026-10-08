@@ -9,7 +9,6 @@ import aniyomi.lib.luluextractor.LuluExtractor
 import aniyomi.lib.mixdropextractor.MixDropExtractor
 import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import aniyomi.lib.okruextractor.OkruExtractor
-import aniyomi.lib.savefileextractor.SavefileExtractor
 import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import aniyomi.lib.universalextractor.UniversalExtractor
@@ -64,7 +63,6 @@ class MonosChinos :
             "Streamtape",
             "Mp4Upload",
             "LuluStream",
-            "Savefiles",
         )
 
         private val EPISODE_SLUG_REGEX = Regex("-episodio-(\\d+|[\\d.]+)$")
@@ -306,7 +304,6 @@ class MonosChinos :
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
     private val luluExtractor by lazy { LuluExtractor(client, headers) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
-    private val savefileExtractor by lazy { SavefileExtractor(client, preferences) }
 
     private val conventions = listOf(
         "voe" to listOf("voe", "tubelessceliolymph", "simpulumlamerop", "urochsunloath", "nathanfromsubject", "yip.", "metagnathtuggers", "donaldlineelse"),
@@ -319,7 +316,6 @@ class MonosChinos :
         "mixdrop" to listOf("mixdrop"),
         "streamtape" to listOf("streamtape", "stp", "stape", "shavetape"),
         "lulu" to listOf("luluvdo", "lulu", "lulustream"),
-        "Savefiles" to listOf("savefiles", "streamhls.to"),
     )
 
     // ====================== FALLBACK DE DOMINIOS (DOODSTREAM) ======================
@@ -356,8 +352,6 @@ class MonosChinos :
             serverKey.contains("dood") -> "doodstream"
             serverKey.contains("filemoon") -> "filemoon"
             serverKey.contains("lulu") -> "lulu"
-            serverKey.contains("savefiles") -> "savefiles"
-            serverKey.contains("streamhls") -> "savefiles"
             else -> null
         }
 
@@ -384,7 +378,6 @@ class MonosChinos :
             "mixdrop" -> mixdropExtractor.videosFromUrl(url)
             "streamtape" -> streamTapeExtractor.videosFromUrl(url)
             "lulu" -> luluExtractor.videosFromUrl(url, prefix = "LuluStream:")
-            "savefiles" -> savefileExtractor.videosFromUrl(url, prefix = "Savefiles:", headers = headers)
             else -> universalExtractor.videosFromUrl(url, headers)
         }
     }
@@ -462,7 +455,5 @@ class MonosChinos :
             setDefaultValue(PREF_QUALITY_DEFAULT)
             summary = "%s"
         }.also(screen::addPreference)
-
-        SavefileExtractor.addSubtitlePref(screen)
     }
 }
