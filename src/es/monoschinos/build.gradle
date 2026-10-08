@@ -1,6 +1,7 @@
 ext {
     extName = 'MonosChinos'
     extClass = '.MonosChinos'
+    libVersion = 16
     extVersionCode = 57
 }
 
