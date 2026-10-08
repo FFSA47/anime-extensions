@@ -9,6 +9,7 @@ import aniyomi.lib.luluextractor.LuluExtractor
 import aniyomi.lib.mixdropextractor.MixDropExtractor
 import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.savefileextractor.SavefileExtractor
 import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import aniyomi.lib.universalextractor.UniversalExtractor
@@ -17,22 +18,23 @@ import aniyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import keiyoushi.utils.AnimeHttpLegacySource
-import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import okhttp3.FormBody
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
 
 class MonosChinos :
-    AnimeHttpLegacySource(),
+    AnimeHttpSource(),
     ConfigurableAnimeSource {
 
     override val name = "MonosChinos"
@@ -62,6 +64,7 @@ class MonosChinos :
             "Streamtape",
             "Mp4Upload",
             "LuluStream",
+            "Savefiles",
         )
 
         private val EPISODE_SLUG_REGEX = Regex("-episodio-(\\d+|[\\d.]+)$")
@@ -75,12 +78,12 @@ class MonosChinos :
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val document = response.asJsoup()
-        val elements = document.select("li.ficha_efecto a")
-        val nextPage = document.selectFirst(".pagination a:has(span:containsOwn(»))") != null
+        val elements = document.select("article a.card-wrap")
+        val nextPage = document.selectFirst("a[rel='next']") != null
         val animeList = elements.mapNotNull { element ->
             SAnime.create().apply {
-                title = element.selectFirst("h3")?.text() ?: return@mapNotNull null
-                thumbnail_url = element.selectFirst("img")?.getImageUrl()
+                title = element.selectFirst("h3.card-title")?.text()?.trim() ?: return@mapNotNull null
+                thumbnail_url = element.selectFirst("img.card-img")?.getImageUrl()
                 setUrlWithoutDomain(element.attr("abs:href"))
             }
         }
@@ -96,27 +99,30 @@ class MonosChinos :
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val document = response.asJsoup()
-        val episodeItems = document.select("ul.row.row-cols-xl-4.row-cols-lg-4.row-cols-md-3.row-cols-2 > li.col.mb-4")
-        val animeList = episodeItems.mapNotNull { item ->
-            val episodeLink = item.selectFirst("a") ?: return@mapNotNull null
-            val episodeUrl = episodeLink.attr("abs:href")
-
+        val episodeItems = document.select("section:has(h2:contains(Últimos capítulos)) article a.card-wrap")
+        val animeList = episodeItems.mapNotNull { a ->
+            val episodeUrl = a.attr("abs:href")
             val episodeSlug = episodeUrl.substringAfter("/ver/").substringBefore("?")
             val animeSlugBase = episodeSlug.replace(EPISODE_SLUG_REGEX, "")
             val animeUrl = "/anime/$animeSlugBase-sub-espanol"
 
-            val animeTitle = item.selectFirst("h2.fs-5")?.text() ?: return@mapNotNull null
-            val genre = item.selectFirst("span.text-muted")?.text() ?: ""
+            val title = a.selectFirst("h3.card-title")?.text()?.trim() ?: return@mapNotNull null
+            val episodeNumber = a.selectFirst("div.absolute.top-2\\.5")?.text()
+                ?.replace("EP ", "")?.trim() ?: ""
 
             SAnime.create().apply {
-                title = animeTitle
+                this.title = if (episodeNumber.isNotBlank()) {
+                    "$title - Episodio $episodeNumber"
+                } else {
+                    title
+                }
                 setUrlWithoutDomain(animeUrl)
-                description = genre
-                thumbnail_url = item.selectFirst("img.lazy")?.getImageUrl()
+                description = a.selectFirst("div.mt-1 span")?.text()?.trim()
+                thumbnail_url = a.selectFirst("img.card-img")?.getImageUrl()
             }
         }
 
-        val nextPage = document.selectFirst(".pagination a:has(span:containsOwn(»))") != null
+        val nextPage = document.selectFirst("a[rel='next']") != null
         return AnimesPage(animeList, nextPage)
     }
 
@@ -138,23 +144,31 @@ class MonosChinos :
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.asJsoup()
         return SAnime.create().apply {
-            title = document.selectFirst("h1.fs-2.text-capitalize.text-light")?.text() ?: ""
-            description = document.selectFirst("#profile-tab-pane .mb-3 p")?.text()
-            genre = document.select("#profile-tab-pane .badge.bg-secondary").joinToString { it.text() }
-            thumbnail_url = document.selectFirst(".d-none.d-sm-flex img.lazy")?.getImageUrl()
-            status = run {
-                val estadoElement = document.selectFirst(".col:has(.text-muted:contains(Estado)) div.ms-2 div:last-child")
-                when (estadoElement?.text()) {
-                    "Estreno", "En emisión" -> SAnime.ONGOING
-                    "Finalizado" -> SAnime.COMPLETED
+            title = document.selectFirst("h1.font-extrabold")?.text()?.trim() ?: ""
+
+            thumbnail_url = document.selectFirst("div.shrink-0 img")?.getImageUrl()
+
+            description = document.selectFirst("p[class*=\"max-w-\"]")?.text()?.trim()
+                ?: document.selectFirst("#tab-info p")?.text()?.trim()
+
+            genre = document.select("div.flex.gap-2.flex-wrap a").joinToString { it.text() }
+
+            val statusBadge = document.selectFirst("div.absolute.top-3.left-3")
+            status = if (statusBadge != null) {
+                val statusText = statusBadge.text().trim()
+                when {
+                    statusText.contains("Estreno") || statusText.contains("En emisión") -> SAnime.ONGOING
+                    statusText.contains("Finalizado") -> SAnime.COMPLETED
                     else -> SAnime.UNKNOWN
                 }
+            } else {
+                SAnime.UNKNOWN
             }
         }
     }
 
     // ====================== EPISODIOS ======================
-
+    override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()
         val referer = document.location()
@@ -242,9 +256,9 @@ class MonosChinos :
         return episodes.sortedByDescending { it.episode_number }
     }
 
-    // ====================== VIDEOS ======================
+    // ====================== HOSTERS / VIDEOS ======================
 
-    override fun videoListParse(response: Response): List<Video> {
+    override fun hosterListParse(response: Response): List<Hoster> {
         val document = response.asJsoup()
         val serverButtons = document.select("button.play-video[data-player]")
         return serverButtons.mapNotNull { button ->
@@ -257,13 +271,26 @@ class MonosChinos :
             } ?: return@mapNotNull null
 
             val serverName = button.attr("data-server").takeIf { it.isNotBlank() }
-                ?: button.text().takeIf { it.isNotBlank() }
+                ?: button.text().trim().takeIf { it.isNotBlank() }
                 ?: ""
 
-            serverName to decodedUrl
-        }.catchingFlatMapBlocking { (serverName, url) ->
-            serverVideoResolver(url, serverName)
+            Hoster(
+                hosterUrl = decodedUrl,
+                hosterName = serverName,
+                internalData = serverName,
+            )
         }
+    }
+
+    override suspend fun getVideoList(hoster: Hoster): List<Video> {
+        return serverVideoResolver(hoster.hosterUrl, hoster.internalData).sortVideos()
+    }
+
+    override fun List<Hoster>.sortHosters(): List<Hoster> {
+        val server = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)!!
+        return sortedWith(
+            compareByDescending<Hoster> { it.hosterName.contains(server, true) },
+        )
     }
 
     // ====================== EXTRACTORES ======================
@@ -279,6 +306,7 @@ class MonosChinos :
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
     private val luluExtractor by lazy { LuluExtractor(client, headers) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
+    private val savefileExtractor by lazy { SavefileExtractor(client, preferences) }
 
     private val conventions = listOf(
         "voe" to listOf("voe", "tubelessceliolymph", "simpulumlamerop", "urochsunloath", "nathanfromsubject", "yip.", "metagnathtuggers", "donaldlineelse"),
@@ -287,11 +315,30 @@ class MonosChinos :
         "uqload" to listOf("uqload"),
         "mp4upload" to listOf("mp4upload"),
         "streamwish" to listOf("wishembed", "streamwish", "strwish", "wish", "kswplayer", "swhoi", "multimovies", "uqloads", "neko-stream", "swdyu", "iplayerhls", "streamgg"),
-        "doodstream" to listOf("doodstream", "dood.", "ds2play", "doods.", "ds2video", "dooood", "d000d", "d0000d"),
+        "doodstream" to listOf("doodstream", "dood.", "ds2play", "doods.", "ds2video", "dooood", "d000d", "d0000d", "dooodster", "dvsplayer", "playmogo"),
         "mixdrop" to listOf("mixdrop"),
         "streamtape" to listOf("streamtape", "stp", "stape", "shavetape"),
         "lulu" to listOf("luluvdo", "lulu", "lulustream"),
+        "Savefiles" to listOf("savefiles", "streamhls.to"),
     )
+
+    // ====================== FALLBACK DE DOMINIOS (DOODSTREAM) ======================
+
+    private val doodstreamDomains = listOf(
+        "doodstream.com",
+        "dooodster.com",
+        "dood.to",
+        "dooood.com",
+        "doods.pro",
+        "d000d.com",
+        "ds2play.com",
+        "ds2video.com",
+        "d0000d.com",
+        "playmogo.com",
+        "dvsplayer.com",
+    )
+
+    private var cachedDoodDomain: String? = null
 
     private suspend fun serverVideoResolver(url: String, serverName: String = ""): List<Video> {
         val source = url.lowercase()
@@ -309,7 +356,22 @@ class MonosChinos :
             serverKey.contains("dood") -> "doodstream"
             serverKey.contains("filemoon") -> "filemoon"
             serverKey.contains("lulu") -> "lulu"
+            serverKey.contains("savefiles") -> "savefiles"
+            serverKey.contains("streamhls") -> "savefiles"
             else -> null
+        }
+
+        // Fallback de dominios solo para DoodStream
+        if (effectiveMatched == "doodstream") {
+            val candidates = buildDoodCandidates(url)
+            for (candidate in candidates) {
+                val videos = tryDoodExtract(candidate)
+                if (videos.isNotEmpty()) {
+                    candidate.toHttpUrlOrNull()?.host?.let { cachedDoodDomain = it }
+                    return videos
+                }
+            }
+            return emptyList()
         }
 
         return when (effectiveMatched) {
@@ -319,12 +381,33 @@ class MonosChinos :
             "uqload" -> uqloadExtractor.videosFromUrl(url)
             "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, headers)
             "streamwish" -> streamwishExtractor.videosFromUrl(url, videoNameGen = { "StreamWish:$it" })
-            "doodstream" -> doodExtractor.videosFromUrl(url, "DoodStream:")
             "mixdrop" -> mixdropExtractor.videosFromUrl(url)
             "streamtape" -> streamTapeExtractor.videosFromUrl(url)
             "lulu" -> luluExtractor.videosFromUrl(url, prefix = "LuluStream:")
+            "savefiles" -> savefileExtractor.videosFromUrl(url, prefix = "Savefiles:", headers = headers)
             else -> universalExtractor.videosFromUrl(url, headers)
         }
+    }
+
+    private fun buildDoodCandidates(url: String): List<String> {
+        val httpUrl = url.toHttpUrlOrNull() ?: return listOf(url)
+        val path = httpUrl.encodedPath
+        val query = httpUrl.encodedQuery
+
+        val orderedDomains = buildList {
+            cachedDoodDomain?.let { add(it) }
+            addAll(doodstreamDomains.filter { it != cachedDoodDomain })
+        }
+
+        return orderedDomains.map { host ->
+            if (query != null) "https://$host$path?$query" else "https://$host$path"
+        }
+    }
+
+    private suspend fun tryDoodExtract(url: String): List<Video> = try {
+        doodExtractor.videosFromUrl(url, "DoodStream:")
+    } catch (_: Exception) {
+        emptyList()
     }
 
     // ====================== ORDEN ======================
@@ -343,18 +426,16 @@ class MonosChinos :
 
     // ====================== AUXILIARES ======================
 
-    private fun Element.getImageUrl(): String? = when {
-        isValidUrl("data-src") -> attr("abs:data-src")
-        isValidUrl("data-lazy-src") -> attr("abs:data-lazy-src")
-        isValidUrl("srcset") -> attr("abs:srcset").substringBefore(" ")
-        isValidUrl("src") -> attr("abs:src")
-        else -> null
-    }
-
-    private fun Element.isValidUrl(attrName: String): Boolean {
-        if (!hasAttr(attrName)) return false
-        val url = attr(attrName)
-        return url.isNotBlank() && !url.contains("anime.png")
+    private fun Element.getImageUrl(): String? {
+        val candidates = listOf("data-src", "data-lazy-src", "srcset", "src")
+        return candidates.mapNotNull { name ->
+            when (name) {
+                "srcset" -> this.attr("abs:srcset").substringBefore(" ")
+                else -> this.attr("abs:$name")
+            }
+        }.firstOrNull { url ->
+            url.isNotBlank() && !url.contains("anime.png")
+        }
     }
 
     // ====================== FILTROS ======================
@@ -381,5 +462,7 @@ class MonosChinos :
             setDefaultValue(PREF_QUALITY_DEFAULT)
             summary = "%s"
         }.also(screen::addPreference)
+
+        SavefileExtractor.addSubtitlePref(screen)
     }
 }
