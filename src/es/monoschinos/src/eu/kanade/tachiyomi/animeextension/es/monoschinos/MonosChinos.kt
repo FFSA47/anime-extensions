@@ -64,24 +64,35 @@ class MonosChinos :
             "LuluStream",
         )
 
-        // Alias reales que usa el sitio (data-server / texto del botón)
-        // y dominios que aparecen en cada embed. Se comparan sin espacios ni signos.
-        private val conventions = listOf(
-            "voe" to listOf("voe", "tubelessceliolymph", "simpulumlamerop", "urochsunloath", "nathanfromsubject", "yip.", "metagnathtuggers", "donaldlineelse"),
-            "StreamWish" to listOf("streamwish", "wish", "swdyu", "iplayerhls", "strwish"),
+        // Alias por nombre de preferencia. Se usa en sortHosters/sortVideos
+        // vía matchesPref() para ordenar correctamente según el servidor elegido.
+        private val PREF_SERVER_ALIASES: Map<String, List<String>> = mapOf(
+            "Voe" to listOf(
+                "voe", "tubelessceliolymph", "simpulumlamerop", "urochsunloath",
+                "nathanfromsubject", "yip.", "metagnathtuggers", "donaldlineelse",
+            ),
+            "StreamWish" to listOf(
+                "streamwish", "wish", "swdyu", "iplayerhls", "strwish",
+                "wishembed", "kswplayer", "swhoi", "multimovies", "uqloads",
+                "neko-stream", "streamgg",
+            ),
             "Okru" to listOf("okru", "ok.ru"),
-            "Uqload" to listOf("uqload"),
-            "Filemoon" to listOf("filemoon", "bysekoze", "moonplayer", "files.im"),
+            "Uqload" to listOf("uqload", "upload"),
+            "Filemoon" to listOf(
+                "filemoon", "bysekoze", "moonplayer", "files.im",
+                "moviesm4u", "filemoon.sx",
+            ),
             "DoodStream" to listOf(
                 "doodstream", "dood", "ds2play", "ds2video",
                 "dvsplay", "dvsplayer", "playmogo", "dooood", "d000d", "d0000d",
+                "dooodster", "doods",
             ),
             "MixDrop" to listOf("mixdrop", "mxdrop"),
             "Streamtape" to listOf("streamtape", "stape", "stp", "shavetape"),
             "Mp4Upload" to listOf("mp4upload"),
             "LuluStream" to listOf("lulustream", "lulu", "luluvdo"),
         )
-
+        
         private val EPISODE_SLUG_REGEX = Regex("-episodio-(\\d+|[\\d.]+)$")
         private val SUB_ES_REGEX = Regex("-sub-espanol$")
         private val QUALITY_REGEX = Regex("""(\d+)p""")
@@ -449,13 +460,13 @@ class MonosChinos :
     private fun matchesPref(text: String, pref: String): Boolean {
         val t = text.lowercase().replace(NON_ALNUM, "")
         if (t.isEmpty()) return false
-        val keys = PREF_SERVER_ALIASES[pref] ?: listOf(pref.lowercase())
+        val keys: List<String> = PREF_SERVER_ALIASES[pref] ?: listOf(pref.lowercase())
         return keys.any { key ->
             val k = key.lowercase().replace(NON_ALNUM, "")
             k.isNotEmpty() && (t.contains(k) || k.contains(t))
         }
     }
-
+    
     private fun Element.getImageUrl(): String? {
         val candidates = listOf("data-src", "data-lazy-src", "srcset", "src")
         return candidates.mapNotNull { name ->
