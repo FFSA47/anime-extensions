@@ -68,19 +68,19 @@ class MonosChinos :
         // Alias reales que usa el sitio (data-server / texto del botón)
         // y dominios que aparecen en cada embed. Se comparan sin espacios ni signos.
         private val PREF_SERVER_ALIASES: Map<String, List<String>> = mapOf(
-            "Voe"        to listOf("voe"),
+            "Voe" to listOf("voe"),
             "StreamWish" to listOf("streamwish", "wish", "swdyu", "iplayerhls", "strwish"),
-            "Okru"       to listOf("okru", "ok.ru"),
-            "Upload"     to listOf("upload", "uqload"),
-            "FileLions"  to listOf("filelions", "lion"),
-            "Filemoon"   to listOf("filemoon", "bysekoze", "moonplayer", "files.im"),
+            "Okru" to listOf("okru", "ok.ru"),
+            "Upload" to listOf("upload", "uqload"),
+            "FileLions" to listOf("filelions", "lion"),
+            "Filemoon" to listOf("filemoon", "bysekoze", "moonplayer", "files.im"),
             "DoodStream" to listOf(
                 "doodstream", "dood", "ds2play", "ds2video",
                 "dvsplay", "dvsplayer", "playmogo", "dooood", "d000d", "d0000d",
             ),
-            "MixDrop"    to listOf("mixdrop", "mxdrop"),
+            "MixDrop" to listOf("mixdrop", "mxdrop"),
             "Streamtape" to listOf("streamtape", "stape", "stp", "shavetape"),
-            "Mp4Upload"  to listOf("mp4upload"),
+            "Mp4Upload" to listOf("mp4upload"),
             "LuluStream" to listOf("lulustream", "lulu", "luluvdo"),
         )
 
@@ -300,9 +300,7 @@ class MonosChinos :
         }
     }
 
-    override suspend fun getVideoList(hoster: Hoster): List<Video> {
-        return serverVideoResolver(hoster.hosterUrl, hoster.internalData).sortVideos()
-    }
+    override suspend fun getVideoList(hoster: Hoster): List<Video> = serverVideoResolver(hoster.hosterUrl, hoster.internalData).sortVideos()
 
     // --------- FIX 1: sortHosters con alias ---------
     override fun List<Hoster>.sortHosters(): List<Hoster> {
