@@ -55,8 +55,7 @@ class MonosChinos :
             "Voe",
             "StreamWish",
             "Okru",
-            "Upload",
-            "FileLions",
+            "Uqload",
             "Filemoon",
             "DoodStream",
             "MixDrop",
@@ -67,12 +66,11 @@ class MonosChinos :
 
         // Alias reales que usa el sitio (data-server / texto del botón)
         // y dominios que aparecen en cada embed. Se comparan sin espacios ni signos.
-        private val PREF_SERVER_ALIASES: Map<String, List<String>> = mapOf(
-            "Voe" to listOf("voe"),
+        private val conventions = listOf(
+            "voe" to listOf("voe", "tubelessceliolymph", "simpulumlamerop", "urochsunloath", "nathanfromsubject", "yip.", "metagnathtuggers", "donaldlineelse"),
             "StreamWish" to listOf("streamwish", "wish", "swdyu", "iplayerhls", "strwish"),
             "Okru" to listOf("okru", "ok.ru"),
-            "Upload" to listOf("upload", "uqload"),
-            "FileLions" to listOf("filelions", "lion"),
+            "Uqload" to listOf("uqload"),
             "Filemoon" to listOf("filemoon", "bysekoze", "moonplayer", "files.im"),
             "DoodStream" to listOf(
                 "doodstream", "dood", "ds2play", "ds2video",
