@@ -65,9 +65,29 @@ class MonosChinos :
             "LuluStream",
         )
 
+        // Alias reales que usa el sitio (data-server / texto del botón)
+        // y dominios que aparecen en cada embed. Se comparan sin espacios ni signos.
+        private val PREF_SERVER_ALIASES: Map<String, List<String>> = mapOf(
+            "Voe"        to listOf("voe"),
+            "StreamWish" to listOf("streamwish", "wish", "swdyu", "iplayerhls", "strwish"),
+            "Okru"       to listOf("okru", "ok.ru"),
+            "Upload"     to listOf("upload", "uqload"),
+            "FileLions"  to listOf("filelions", "lion"),
+            "Filemoon"   to listOf("filemoon", "bysekoze", "moonplayer", "files.im"),
+            "DoodStream" to listOf(
+                "doodstream", "dood", "ds2play", "ds2video",
+                "dvsplay", "dvsplayer", "playmogo", "dooood", "d000d", "d0000d",
+            ),
+            "MixDrop"    to listOf("mixdrop", "mxdrop"),
+            "Streamtape" to listOf("streamtape", "stape", "stp", "shavetape"),
+            "Mp4Upload"  to listOf("mp4upload"),
+            "LuluStream" to listOf("lulustream", "lulu", "luluvdo"),
+        )
+
         private val EPISODE_SLUG_REGEX = Regex("-episodio-(\\d+|[\\d.]+)$")
         private val SUB_ES_REGEX = Regex("-sub-espanol$")
         private val QUALITY_REGEX = Regex("""(\d+)p""")
+        private val NON_ALNUM = Regex("[^a-z0-9]")
     }
 
     // ====================== POPULAR ======================
@@ -284,10 +304,11 @@ class MonosChinos :
         return serverVideoResolver(hoster.hosterUrl, hoster.internalData).sortVideos()
     }
 
+    // --------- FIX 1: sortHosters con alias ---------
     override fun List<Hoster>.sortHosters(): List<Hoster> {
         val server = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)!!
         return sortedWith(
-            compareByDescending<Hoster> { it.hosterName.contains(server, true) },
+            compareByDescending<Hoster> { matchesPref(it.hosterName, server) },
         )
     }
 
@@ -308,19 +329,21 @@ class MonosChinos :
     private val conventions = listOf(
         "voe" to listOf("voe", "tubelessceliolymph", "simpulumlamerop", "urochsunloath", "nathanfromsubject", "yip.", "metagnathtuggers", "donaldlineelse"),
         "okru" to listOf("ok.ru", "okru"),
-        "filemoon" to listOf("filemoon", "moonplayer", "moviesm4u", "files.im", "filemoon.sx"),
+        "filemoon" to listOf("filemoon", "moonplayer", "moviesm4u", "files.im", "filemoon.sx", "bysekoze"),
         "uqload" to listOf("uqload"),
         "mp4upload" to listOf("mp4upload"),
         "streamwish" to listOf("wishembed", "streamwish", "strwish", "wish", "kswplayer", "swhoi", "multimovies", "uqloads", "neko-stream", "swdyu", "iplayerhls", "streamgg"),
-        "doodstream" to listOf("doodstream", "dood.", "ds2play", "doods.", "ds2video", "dooood", "d000d", "d0000d", "dooodster", "dvsplayer", "playmogo"),
-        "mixdrop" to listOf("mixdrop"),
+        "doodstream" to listOf("doodstream", "dood.", "ds2play", "doods.", "ds2video", "dooood", "d000d", "d0000d", "dooodster", "dvsplayer", "dvsplay", "playmogo"),
+        "mixdrop" to listOf("mixdrop", "mxdrop"),
         "streamtape" to listOf("streamtape", "stp", "stape", "shavetape"),
         "lulu" to listOf("luluvdo", "lulu", "lulustream"),
     )
 
     // ====================== FALLBACK DE DOMINIOS (DOODSTREAM) ======================
 
+    // --------- FIX 2: incluir dvsplay.com (dominio real del HTML) ---------
     private val doodstreamDomains = listOf(
+        "dvsplay.com",
         "doodstream.com",
         "dooodster.com",
         "dood.to",
@@ -338,9 +361,14 @@ class MonosChinos :
 
     private suspend fun serverVideoResolver(url: String, serverName: String = ""): List<Video> {
         val source = url.lowercase()
-        val serverKey = serverName.lowercase()
+        val serverKey = serverName.lowercase().replace(NON_ALNUM, "")
 
-        var matched = conventions.firstOrNull { (key, _) -> key == serverKey }?.first
+        // --------- FIX 3: matching tolerante (contiene en ambos sentidos + alias) ---------
+        var matched = conventions.firstOrNull { (key, aliases) ->
+            val k = key.lowercase()
+            serverKey.contains(k) || k.contains(serverKey) ||
+                aliases.any { serverKey.contains(it.lowercase().replace(NON_ALNUM, "")) }
+        }?.first
 
         if (matched == null) {
             matched = conventions.firstOrNull { (_, aliases) ->
@@ -352,6 +380,7 @@ class MonosChinos :
             serverKey.contains("dood") -> "doodstream"
             serverKey.contains("filemoon") -> "filemoon"
             serverKey.contains("lulu") -> "lulu"
+            serverKey.contains("mxdrop") -> "mixdrop"
             else -> null
         }
 
@@ -405,12 +434,13 @@ class MonosChinos :
 
     // ====================== ORDEN ======================
 
+    // --------- FIX 4: sortVideos con alias ---------
     override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
         val server = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)!!
         return this.sortedWith(
             compareBy<Video>(
-                { it.videoTitle.contains(server, true) },
+                { matchesPref(it.videoTitle, server) },
                 { it.videoTitle.contains(quality) },
                 { QUALITY_REGEX.find(it.videoTitle)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
             ).reversed(),
@@ -418,6 +448,17 @@ class MonosChinos :
     }
 
     // ====================== AUXILIARES ======================
+
+    // --------- FIX 5: helper de matching por alias ---------
+    private fun matchesPref(text: String, pref: String): Boolean {
+        val t = text.lowercase().replace(NON_ALNUM, "")
+        if (t.isEmpty()) return false
+        val keys = PREF_SERVER_ALIASES[pref] ?: listOf(pref.lowercase())
+        return keys.any { key ->
+            val k = key.lowercase().replace(NON_ALNUM, "")
+            k.isNotEmpty() && (t.contains(k) || k.contains(t))
+        }
+    }
 
     private fun Element.getImageUrl(): String? {
         val candidates = listOf("data-src", "data-lazy-src", "srcset", "src")
