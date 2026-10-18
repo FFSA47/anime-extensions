@@ -53,7 +53,7 @@ class AnimeID :
 
     private val preferences by getPreferencesLazy()
 
-    
+
     private val safeDns = object : Dns {
         override fun lookup(hostname: String): List<InetAddress> {
             val addresses = Dns.SYSTEM.lookup(hostname)
@@ -83,7 +83,7 @@ class AnimeID :
     private val streamWishExtractor by lazy { StreamWishExtractor(safeClient, headers) }
     private val universalExtractor by lazy { UniversalExtractor(safeClient) }
 
-    
+
     private val streamWishHosts = listOf(
         "streamwish", "wishembed", "strwish", "playerwish", "wishfast",
     )
@@ -281,7 +281,7 @@ class AnimeID :
         anime.description = document.selectFirst("div.info-a .c .tx p")?.text()?.trim()
         anime.genre = document.select("div.info-a .c .gn li a").joinToString { it.text() }
 
-        
+
         val statusText = document
             .selectFirst("div.info-b .dv ul li strong.ee, div.info-b .dv ul li strong.ef")
             ?.text()?.trim()?.stripAccents()
@@ -333,13 +333,13 @@ class AnimeID :
                 .add("u", animeSlug)
                 .add("p", currentPage.toString())
                 .build()
-            
+
             val pageDoc = postToIdEndpoint(formBody)
             val episodesOnPage = pageDoc.select(episodeListSelector()).map { episodeFromElement(it) }
 
             if (episodesOnPage.isEmpty()) break
 
-            
+
             val pageUrls = episodesOnPage.map { it.url }.toSet()
             if (pageUrls.all { it in seenUrls }) break
 
@@ -374,7 +374,7 @@ class AnimeID :
             } catch (e2: CancellationException) {
                 throw e2
             } catch (e2: Exception) {
-                
+
                 emptyList()
             }
         }
@@ -391,7 +391,7 @@ class AnimeID :
                 .add("acc", "opt")
                 .add("i", encryptedId)
                 .build()
-            
+
             val serversDoc = try {
                 postToIdEndpoint(formBody)
             } catch (e: CancellationException) {
@@ -407,14 +407,14 @@ class AnimeID :
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        
+
                     }
                 }
                 if (videos.isNotEmpty()) return orderVideosByPreferences(videos)
             }
         }
 
-        
+
         val scripts: Elements = document.select("#partes div.container li.subtab div.parte")
         for (script in scripts) {
             currentCoroutineContext().ensureActive()
@@ -427,7 +427,7 @@ class AnimeID :
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    
+
             }
         }
 
@@ -456,7 +456,7 @@ class AnimeID :
             val decodedUrl = try {
                 encryptedUrl.decodeHexToString()
             } catch (e: Exception) {
-                
+
                 continue
             }
             if (decodedUrl.isNotEmpty() && isSafeUrlString(decodedUrl)) {
