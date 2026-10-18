@@ -52,7 +52,7 @@ class AnimeID :
         """(http|ftp|https)://([\w_-]+(?:(?:\.[\w_-]+)+))([\w.,@?^=%&:/~+#-]*[\w@?^=%&/~+#-])""".toRegex()
     private val unicodeEscapeRegex = Regex("""\\u([0-9a-fA-F]{4})""")
 
-    // ============================== Temporadas (no soportadas) ===============================
+    // ============================== Seasons (not supported) ===============================
     override fun seasonListSelector(): String = ""
     override fun seasonFromElement(element: Element): SAnime = throw UnsupportedOperationException("Seasons not supported")
 
