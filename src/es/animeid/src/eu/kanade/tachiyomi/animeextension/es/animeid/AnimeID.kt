@@ -48,18 +48,16 @@ class AnimeID :
     private val streamWishExtractor by lazy { StreamWishExtractor(client, headers) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
-    // Regex precompiladas
     private val urlRegex =
         """(http|ftp|https)://([\w_-]+(?:(?:\.[\w_-]+)+))([\w.,@?^=%&:/~+#-]*[\w@?^=%&/~+#-])""".toRegex()
     private val unicodeEscapeRegex = Regex("""\\u([0-9a-fA-F]{4})""")
 
     // ============================== Temporadas (no soportadas) ===============================
     override fun seasonListSelector(): String = ""
-    override fun seasonFromElement(element: Element): SAnime = throw UnsupportedOperationException("Seasons not supported")
+    override fun seasonFromElement(element: Element): SAnime =
+        throw UnsupportedOperationException("Seasons not supported")
 
     // ============================== Hoster ===============================
-    // La web no usa hosters separados, pero la API requiere que exista al menos uno
-    // para que la app invoque videoListParse. Devolvemos un hoster con la URL del episodio.
     override fun hosterListParse(response: Response): List<Hoster> {
         return listOf(Hoster(hosterUrl = response.request.url.toString()))
     }
@@ -177,50 +175,32 @@ class AnimeID :
     private class GenreFilter : UriPartFilter(
         "Género",
         arrayOf(
-            Pair("Todos", ""),
-            Pair("Acción", "accion"),
-            Pair("Aventura", "aventura"),
-            Pair("Comedia", "comedia"),
-            Pair("Drama", "drama"),
-            Pair("Fantasía", "fantasia"),
-            Pair("Romance", "romance"),
-            Pair("Sci-Fi", "ciencia-ficcion"),
-            Pair("Seinen", "seinen"),
-            Pair("Shounen", "shounen"),
-            Pair("Suspenso", "suspenso"),
-            Pair("Terror", "terror"),
+            Pair("Todos", ""), Pair("Acción", "accion"), Pair("Aventura", "aventura"),
+            Pair("Comedia", "comedia"), Pair("Drama", "drama"), Pair("Fantasía", "fantasia"),
+            Pair("Romance", "romance"), Pair("Sci-Fi", "ciencia-ficcion"), Pair("Seinen", "seinen"),
+            Pair("Shounen", "shounen"), Pair("Suspenso", "suspenso"), Pair("Terror", "terror"),
         ),
     )
 
     private class YearFilter : UriPartFilter(
         "Año",
         arrayOf(
-            Pair("Todos", ""),
-            Pair("2026", "2026"),
-            Pair("2025", "2025"),
-            Pair("2024", "2024"),
-            Pair("2023", "2023"),
-            Pair("2022", "2022"),
-            Pair("2021", "2021"),
-            Pair("2020", "2020"),
+            Pair("Todos", ""), Pair("2026", "2026"), Pair("2025", "2025"), Pair("2024", "2024"),
+            Pair("2023", "2023"), Pair("2022", "2022"), Pair("2021", "2021"), Pair("2020", "2020"),
         ),
     )
 
     private class StatusFilter : UriPartFilter(
         "Estado",
         arrayOf(
-            Pair("Todos", ""),
-            Pair("En emisión", "en-emision"),
-            Pair("Finalizado", "finalizado"),
+            Pair("Todos", ""), Pair("En emisión", "en-emision"), Pair("Finalizado", "finalizado"),
         ),
     )
 
     private class OrderFilter : UriPartFilter(
         "Ordenar por",
         arrayOf(
-            Pair("Recientes", "newest"),
-            Pair("Popularidad", "views"),
-            Pair("A-Z", "asc"),
+            Pair("Recientes", "newest"), Pair("Popularidad", "views"), Pair("A-Z", "asc"),
         ),
     )
 
@@ -319,7 +299,6 @@ class AnimeID :
         }
     }
 
-    // La firma ahora requiere el parámetro hoster (se ignora porque la web no los usa)
     override fun videoListParse(response: Response, hoster: Hoster): List<Video> = runBlocking {
         val document = response.asJsoup()
         val videos = mutableListOf<Video>()
@@ -338,7 +317,6 @@ class AnimeID :
             }
         }
 
-        // Fallback: usar una variable Elements para evitar la ambigüedad de iterator()
         val scripts: Elements = document.select("#partes div.container li.subtab div.parte")
         for (script in scripts) {
             val jsonString = script.attr("data")
@@ -387,10 +365,10 @@ class AnimeID :
         val preferredQuality = preferences.getString("animeid_preferred_quality", "any")?.lowercase()
 
         fun detectServer(video: Video): String = when {
-            video.quality.startsWith("Voe", ignoreCase = true) -> "voe"
-            video.quality.startsWith("Mp4upload", ignoreCase = true) -> "mp4upload"
-            video.quality.startsWith("Uqload", ignoreCase = true) -> "uqload"
-            video.quality.startsWith("StreamWish", ignoreCase = true) -> "streamwish"
+            video.videoTitle.startsWith("Voe", ignoreCase = true) -> "voe"
+            video.videoTitle.startsWith("Mp4upload", ignoreCase = true) -> "mp4upload"
+            video.videoTitle.startsWith("Uqload", ignoreCase = true) -> "uqload"
+            video.videoTitle.startsWith("StreamWish", ignoreCase = true) -> "streamwish"
             else -> "other"
         }
 
@@ -403,9 +381,9 @@ class AnimeID :
             }
             val qToken = "${preferredQuality}p"
             return when {
-                video.quality.contains(qToken, ignoreCase = true) -> 3
-                video.quality.contains(preferredQuality, ignoreCase = true) -> 2
-                video.url.contains("/$qToken", ignoreCase = true) -> 3
+                video.videoTitle.contains(qToken, ignoreCase = true) -> 3
+                video.videoTitle.contains(preferredQuality, ignoreCase = true) -> 2
+                video.videoUrl.contains("/$qToken", ignoreCase = true) -> 3
                 else -> 0
             }
         }
@@ -426,8 +404,8 @@ class AnimeID :
             }
         }
 
-        val addedUrls = order.map { it.url }.toSet()
-        videos.filter { it.url !in addedUrls }.let { leftovers ->
+        val addedUrls = order.map { it.videoUrl }.toSet()
+        videos.filter { it.videoUrl !in addedUrls }.let { leftovers ->
             order.addAll(leftovers.sortedByDescending { qualityScore(it) })
         }
 
