@@ -16,20 +16,31 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.decodeHexToString
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.getPreferencesLazy
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.ensureActive
+import okhttp3.ConnectionSpec
+import okhttp3.Dns
 import okhttp3.FormBody
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import org.jsoup.select.Elements
+import java.net.Inet4Address
+import java.net.Inet6Address
+import java.net.InetAddress
+import java.net.UnknownHostException
+import java.text.Normalizer
 
 class AnimeID :
     ParsedAnimeHttpSource(),
@@ -42,29 +53,67 @@ class AnimeID :
 
     private val preferences by getPreferencesLazy()
 
-    private val voeExtractor by lazy { VoeExtractor(client, headers) }
-    private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
-    private val uqloadExtractor by lazy { UqloadExtractor(client) }
-    private val streamWishExtractor by lazy { StreamWishExtractor(client, headers) }
-    private val universalExtractor by lazy { UniversalExtractor(client) }
+    // ============================== URL safety (SSRF) ==============================
+    // Se aplica a cada conexión de los extractores, incluyendo redirects,
+    // porque OkHttp invoca Dns.lookup en cada nuevo host que visita.
+    private val safeDns = object : Dns {
+        override fun lookup(hostname: String): List<InetAddress> {
+            val addresses = Dns.SYSTEM.lookup(hostname)
+            if (addresses.isEmpty() || addresses.any { !isPublicIp(it) }) {
+                throw UnknownHostException("AnimeID: blocked non-public host $hostname")
+            }
+            return addresses
+        }
+    }
+
+    private val safeClient: OkHttpClient by lazy {
+        client.newBuilder()
+            .dns(safeDns)
+            .build()
+    }
+
+    // Mp4upload suele requerir TLS legacy (TLS 1.0/1.1) → COMPATIBLE_TLS.
+    private val mp4uploadClient: OkHttpClient by lazy {
+        safeClient.newBuilder()
+            .connectionSpecs(listOf(ConnectionSpec.COMPATIBLE_TLS, ConnectionSpec.CLEARTEXT))
+            .build()
+    }
+
+    private val voeExtractor by lazy { VoeExtractor(safeClient, headers) }
+    private val mp4uploadExtractor by lazy { Mp4uploadExtractor(mp4uploadClient) }
+    private val uqloadExtractor by lazy { UqloadExtractor(safeClient) }
+    private val streamWishExtractor by lazy { StreamWishExtractor(safeClient, headers) }
+    private val universalExtractor by lazy { UniversalExtractor(safeClient) }
+
+    // Aliases de StreamWish (algunos embed usan dominios alternos).
+    private val streamWishHosts = listOf(
+        "streamwish", "wishembed", "strwish", "playerwish", "wishfast",
+    )
 
     private val urlRegex =
         """(http|ftp|https)://([\w_-]+(?:(?:\.[\w_-]+)+))([\w.,@?^=%&:/~+#-]*[\w@?^=%&/~+#-])""".toRegex()
     private val unicodeEscapeRegex = Regex("""\\u([0-9a-fA-F]{4})""")
+    private val combiningMarksRegex = Regex("""\p{M}+""")
 
-    // ============================== Seasons (not supported) ===============================
+    // ============================== Temporadas (no soportadas) ===============================
     override fun seasonListSelector(): String = ""
-    override fun seasonFromElement(element: Element): SAnime = throw UnsupportedOperationException("Seasons not supported")
+    override fun seasonFromElement(element: Element): SAnime =
+        throw UnsupportedOperationException("Seasons not supported")
 
     // ============================== Hoster ===============================
-    override fun hosterListParse(response: Response): List<Hoster> = listOf(Hoster(hosterUrl = response.request.url.toString()))
+    override fun hosterListParse(response: Response): List<Hoster> =
+        listOf(Hoster(hosterUrl = response.request.url.toString()))
 
     // ============================== Popular ===============================
     override fun popularAnimeSelector(): String = "div.ul.x5 article.li, div.ul article.li"
 
     override fun popularAnimeRequest(page: Int): Request {
-        val url = if (page == 1) "$baseUrl/series" else "$baseUrl/series?pag=$page"
-        return GET(url, headers)
+        val urlBuilder = "$baseUrl/series".toHttpUrlOrNull()!!.newBuilder()
+            .addQueryParameter("sort", "views")
+        if (page > 1) {
+            urlBuilder.addQueryParameter("pag", page.toString())
+        }
+        return GET(urlBuilder.build().toString(), headers)
     }
 
     override fun popularAnimeFromElement(element: Element): SAnime {
@@ -169,53 +218,56 @@ class AnimeID :
         OrderFilter(),
     )
 
-    private class GenreFilter :
-        UriPartFilter(
-            "Género",
-            arrayOf(
-                Pair("Todos", ""), Pair("Acción", "accion"), Pair("Aventura", "aventura"),
-                Pair("Comedia", "comedia"), Pair("Drama", "drama"), Pair("Fantasía", "fantasia"),
-                Pair("Romance", "romance"), Pair("Sci-Fi", "ciencia-ficcion"), Pair("Seinen", "seinen"),
-                Pair("Shounen", "shounen"), Pair("Suspenso", "suspenso"), Pair("Terror", "terror"),
-            ),
-        )
+    private class GenreFilter : UriPartFilter(
+        "Género",
+        arrayOf(
+            Pair("Todos", ""),
+            Pair("Acción", "accion"),
+            Pair("Aventura", "aventura"),
+            Pair("Comedia", "comedia"),
+            Pair("Drama", "drama"),
+            Pair("Fantasía", "fantasia"),
+            Pair("Romance", "romance"),
+            Pair("Sci-Fi", "ciencia-ficcion"),
+            Pair("Seinen", "seinen"),
+            Pair("Shounen", "shounen"),
+            Pair("Suspenso", "suspenso"),
+            Pair("Terror", "terror"),
+        ),
+    )
 
-    private class YearFilter :
-        UriPartFilter(
-            "Año",
-            arrayOf(
-                Pair("Todos", ""),
-                Pair("2026", "2026"),
-                Pair("2025", "2025"),
-                Pair("2024", "2024"),
-                Pair("2023", "2023"),
-                Pair("2022", "2022"),
-                Pair("2021", "2021"),
-                Pair("2020", "2020"),
-            ),
-        )
+    private class YearFilter : UriPartFilter(
+        "Año",
+        arrayOf(
+            Pair("Todos", ""),
+            Pair("2026", "2026"), Pair("2025", "2025"), Pair("2024", "2024"),
+            Pair("2023", "2023"), Pair("2022", "2022"), Pair("2021", "2021"),
+            Pair("2020", "2020"),
+        ),
+    )
 
-    private class StatusFilter :
-        UriPartFilter(
-            "Estado",
-            arrayOf(
-                Pair("Todos", ""),
-                Pair("En emisión", "en-emision"),
-                Pair("Finalizado", "finalizado"),
-            ),
-        )
+    private class StatusFilter : UriPartFilter(
+        "Estado",
+        arrayOf(
+            Pair("Todos", ""),
+            Pair("En emisión", "en-emision"),
+            Pair("Finalizado", "finalizado"),
+        ),
+    )
 
-    private class OrderFilter :
-        UriPartFilter(
-            "Ordenar por",
-            arrayOf(
-                Pair("Recientes", "newest"),
-                Pair("Popularidad", "views"),
-                Pair("A-Z", "asc"),
-            ),
-        )
+    // State 0 = "Predeterminado" para que "Recientes" (state 1) SÍ se envíe.
+    private class OrderFilter : UriPartFilter(
+        "Ordenar por",
+        arrayOf(
+            Pair("Predeterminado", ""),
+            Pair("Recientes", "newest"),
+            Pair("Popularidad", "views"),
+            Pair("A-Z", "asc"),
+        ),
+    )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
+        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = if (state > 0) vals[state].second else ""
     }
 
@@ -230,8 +282,11 @@ class AnimeID :
         }
         anime.description = document.selectFirst("div.info-a .c .tx p")?.text()?.trim()
         anime.genre = document.select("div.info-a .c .gn li a").joinToString { it.text() }
-        val statusText = document.selectFirst("div.info-b .dv ul li strong.ee, div.info-b .dv ul li strong.ef")
-            ?.text()?.trim()
+
+        // Normalizar acentos: "En emisión" → "En emision" → matchea con "emision"
+        val statusText = document
+            .selectFirst("div.info-b .dv ul li strong.ee, div.info-b .dv ul li strong.ef")
+            ?.text()?.trim()?.stripAccents()
         anime.status = when {
             statusText?.contains("emision", ignoreCase = true) == true -> SAnime.ONGOING
             statusText?.contains("finalizada", ignoreCase = true) == true -> SAnime.COMPLETED
@@ -263,84 +318,127 @@ class AnimeID :
         return episode
     }
 
-    override fun episodeListParse(response: Response): List<SEpisode> = runBlocking {
+    override suspend fun episodeListParse(response: Response): List<SEpisode> {
         val doc = response.asJsoup()
-        val animeId = doc.selectFirst("#dt")?.attr("data-i")
-            ?: return@runBlocking emptyList()
-        val animeSlug = doc.selectFirst("#dt")?.attr("data-u")
-            ?: return@runBlocking emptyList()
+        val animeId = doc.selectFirst("#dt")?.attr("data-i") ?: return emptyList()
+        val animeSlug = doc.selectFirst("#dt")?.attr("data-u") ?: return emptyList()
 
         val allEpisodes = mutableListOf<SEpisode>()
+        val seenUrls = mutableSetOf<String>()
         var currentPage = 1
-        val maxPages = 200
 
-        while (currentPage <= maxPages) {
+        while (true) {
+            currentCoroutineContext().ensureActive()
             val formBody = FormBody.Builder()
                 .add("acc", "episodes")
                 .add("i", animeId)
                 .add("u", animeSlug)
                 .add("p", currentPage.toString())
                 .build()
-            val pageDoc = postToIdEndpoint(formBody) ?: break
+            // Si la página falla, la excepción sube al caller (Aniyomi muestra error + permite retry).
+            // Solo una respuesta vacía se interpreta como fin de paginación.
+            val pageDoc = postToIdEndpoint(formBody)
             val episodesOnPage = pageDoc.select(episodeListSelector()).map { episodeFromElement(it) }
+
             if (episodesOnPage.isEmpty()) break
+
+            // Guarda contra endpoint que repite la misma página (bug del server).
+            val pageUrls = episodesOnPage.map { it.url }.toSet()
+            if (pageUrls.all { it in seenUrls }) break
+
             allEpisodes.addAll(episodesOnPage)
+            seenUrls.addAll(pageUrls)
             currentPage++
-            delay(100)
+            delay(500) // reducido el riesgo de throttling en el endpoint
         }
-        allEpisodes.distinctBy { it.url }.sortedByDescending { it.episode_number }
+        return allEpisodes.distinctBy { it.url }.sortedByDescending { it.episode_number }
     }
 
     // ============================== Videos ===============================
     private suspend fun serverVideoResolver(url: String): List<Video> {
+        if (!isSafeUrlString(url)) return emptyList()
         val embedUrl = url.lowercase()
         return try {
             when {
                 embedUrl.contains("voe") -> voeExtractor.videosFromUrl(url, prefix = "Voe")
-                embedUrl.contains("mp4upload") -> mp4uploadExtractor.videosFromUrl(url, headers, prefix = "Mp4upload")
-                embedUrl.contains("uqload") -> uqloadExtractor.videosFromUrl(url, prefix = "Uqload")
-                embedUrl.contains("streamwish") -> streamWishExtractor.videosFromUrl(url, prefix = "StreamWish")
+                embedUrl.contains("mp4upload") ->
+                    mp4uploadExtractor.videosFromUrl(url, headers, prefix = "Mp4upload")
+                embedUrl.contains("uqload") ->
+                    uqloadExtractor.videosFromUrl(url, prefix = "Uqload")
+                streamWishHosts.any { embedUrl.contains(it) } ->
+                    streamWishExtractor.videosFromUrl(url, prefix = "StreamWish")
                 else -> universalExtractor.videosFromUrl(url, headers)
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            universalExtractor.videosFromUrl(url, headers)
+            try {
+                universalExtractor.videosFromUrl(url, headers)
+            } catch (e2: CancellationException) {
+                throw e2
+            } catch (e2: Exception) {
+                // Fallback también falló: devolver vacío en vez de romper el resto.
+                emptyList()
+            }
         }
     }
 
-    override fun videoListParse(response: Response, hoster: Hoster): List<Video> = runBlocking {
+    override suspend fun videoListParse(response: Response, hoster: Hoster): List<Video> {
         val document = response.asJsoup()
         val videos = mutableListOf<Video>()
 
         document.selectFirst("ul.opt[data-encrypt]")?.let { optElement ->
+            currentCoroutineContext().ensureActive()
             val encryptedId = optElement.attr("data-encrypt")
             val formBody = FormBody.Builder()
                 .add("acc", "opt")
                 .add("i", encryptedId)
                 .build()
-            postToIdEndpoint(formBody)?.let { serversDoc ->
+            // Si el "opt" falla, caemos al fallback de #partes.
+            val serversDoc = try {
+                postToIdEndpoint(formBody)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+            if (serversDoc != null) {
                 for (pageUrl in parseServerUrls(serversDoc)) {
-                    videos.addAll(serverVideoResolver(pageUrl))
+                    currentCoroutineContext().ensureActive()
+                    try {
+                        videos.addAll(serverVideoResolver(pageUrl))
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        // Un servidor roto no debe descartar los anteriores.
+                    }
                 }
-                if (videos.isNotEmpty()) return@runBlocking orderVideosByPreferences(videos)
+                if (videos.isNotEmpty()) return orderVideosByPreferences(videos)
             }
         }
 
+        // Fallback: parsear URLs desde los tabs.
         val scripts: Elements = document.select("#partes div.container li.subtab div.parte")
         for (script in scripts) {
+            currentCoroutineContext().ensureActive()
             val jsonString = script.attr("data")
             val jsonUnescape = unescapeJava(jsonString).replace("\\", "")
             val url = fetchUrls(jsonUnescape).firstOrNull()?.replace("\\\\", "\\") ?: ""
-            if (url.isNotBlank()) {
-                videos.addAll(serverVideoResolver(url))
+            if (url.isNotBlank() && isSafeUrlString(url)) {
+                try {
+                    videos.addAll(serverVideoResolver(url))
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // Ignorar y seguir con el siguiente.
+                }
             }
         }
 
-        orderVideosByPreferences(videos)
+        return orderVideosByPreferences(videos)
     }
 
-    private fun postToIdEndpoint(formBody: FormBody): Document? {
+    private suspend fun postToIdEndpoint(formBody: FormBody): Document {
         val request = Request.Builder()
             .url("$baseUrl/id")
             .post(formBody)
@@ -348,24 +446,25 @@ class AnimeID :
             .header("X-Requested-With", "XMLHttpRequest")
             .header("Referer", "$baseUrl/")
             .build()
-        return try {
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@use null
-                response.asJsoup()
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            null
+        val response = client.newCall(request).await()
+        if (!response.isSuccessful) {
+            throw Exception("AnimeID: POST $baseUrl/id returned HTTP ${response.code}")
         }
+        return response.asJsoup()
     }
 
     private fun parseServerUrls(document: Document): List<String> = buildList {
         for (item in document.select("li")) {
             val encryptedUrl = item.attr("encrypt")
-            if (encryptedUrl.isNotEmpty()) {
-                val decodedUrl = encryptedUrl.decodeHexToString()
-                if (decodedUrl.isNotEmpty()) add(decodedUrl)
+            if (encryptedUrl.isEmpty()) continue
+            val decodedUrl = try {
+                encryptedUrl.decodeHexToString()
+            } catch (e: Exception) {
+                // Entrada malformada: saltar y seguir con la siguiente.
+                continue
+            }
+            if (decodedUrl.isNotEmpty() && isSafeUrlString(decodedUrl)) {
+                add(decodedUrl)
             }
         }
     }
@@ -444,12 +543,74 @@ class AnimeID :
     }
 
     // ============================== Utilities ===============================
-    private fun unescapeJava(escaped: String): String = unicodeEscapeRegex.replace(escaped) { match ->
-        match.groupValues[1].toInt(16).toChar().toString()
-    }
+    private fun unescapeJava(escaped: String): String =
+        unicodeEscapeRegex.replace(escaped) { match ->
+            match.groupValues[1].toInt(16).toChar().toString()
+        }
 
     private fun fetchUrls(text: String?): List<String> {
         if (text.isNullOrEmpty()) return emptyList()
         return urlRegex.findAll(text).map { it.value.trim().removeSurrounding("\"") }.toList()
+    }
+
+    private fun String.stripAccents(): String =
+        Normalizer.normalize(this, Normalizer.Form.NFD).replace(combiningMarksRegex, "")
+
+    // ============================== SSRF protection ===============================
+    private fun isSafeUrlString(url: String): Boolean {
+        val parsed = url.toHttpUrlOrNull() ?: return false
+        return isSafeUrl(parsed)
+    }
+
+    private fun isSafeUrl(url: HttpUrl): Boolean {
+        if (url.scheme != "http" && url.scheme != "https") return false
+        val host = url.host.lowercase()
+        if (host.isEmpty()) return false
+
+        if (host == "localhost" || host == "localhost.localdomain") return false
+        if (host.endsWith(".local") || host.endsWith(".internal")) return false
+        if (host.endsWith(".lan") || host.endsWith(".home.arpa")) return false
+        if (host == "metadata.google.internal" || host == "metadata") return false
+
+        val addresses = try {
+            InetAddress.getAllByName(host)
+        } catch (e: Exception) {
+            return false
+        }
+        return addresses.isNotEmpty() && addresses.all { isPublicIp(it) }
+    }
+
+    private fun isPublicIp(addr: InetAddress): Boolean {
+        if (addr.isAnyLocalAddress) return false
+        if (addr.isLoopbackAddress) return false
+        if (addr.isLinkLocalAddress) return false
+        if (addr.isSiteLocalAddress) return false
+        if (addr.isMulticastAddress) return false
+
+        return when (addr) {
+            is Inet4Address -> {
+                val b = addr.address
+                val b0 = b[0].toInt() and 0xff
+                val b1 = b[1].toInt() and 0xff
+                val b2 = b[2].toInt() and 0xff
+                when {
+                    b0 == 0 -> false                                              // 0.0.0.0/8
+                    b0 == 100 && b1 in 64..127 -> false                            // 100.64.0.0/10 CGNAT
+                    b0 == 192 && b1 == 0 && b2 == 0 -> false                       // 192.0.0.0/24
+                    b0 == 192 && b1 == 0 && b2 == 2 -> false                       // TEST-NET-1
+                    b0 == 198 && (b1 == 18 || b1 == 19) -> false                   // 198.18.0.0/15
+                    b0 == 198 && b1 == 51 && b2 == 100 -> false                    // TEST-NET-2
+                    b0 == 203 && b1 == 0 && b2 == 113 -> false                     // TEST-NET-3
+                    b0 >= 240 -> false                                             // 240/4 + broadcast
+                    else -> true
+                }
+            }
+            is Inet6Address -> {
+                val b0 = addr.address[0].toInt() and 0xff
+                if (b0 and 0xfe == 0xfc) return false   // fc00::/7 unique local
+                true
+            }
+            else -> false
+        }
     }
 }
