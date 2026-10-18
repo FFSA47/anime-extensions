@@ -53,9 +53,7 @@ class AnimeID :
 
     private val preferences by getPreferencesLazy()
 
-    // ============================== URL safety (SSRF) ==============================
-    // Se aplica a cada conexión de los extractores, incluyendo redirects,
-    // porque OkHttp invoca Dns.lookup en cada nuevo host que visita.
+    
     private val safeDns = object : Dns {
         override fun lookup(hostname: String): List<InetAddress> {
             val addresses = Dns.SYSTEM.lookup(hostname)
@@ -72,7 +70,7 @@ class AnimeID :
             .build()
     }
 
-    // Mp4upload suele requerir TLS legacy (TLS 1.0/1.1) → COMPATIBLE_TLS.
+
     private val mp4uploadClient: OkHttpClient by lazy {
         safeClient.newBuilder()
             .connectionSpecs(listOf(ConnectionSpec.COMPATIBLE_TLS, ConnectionSpec.CLEARTEXT))
@@ -85,7 +83,7 @@ class AnimeID :
     private val streamWishExtractor by lazy { StreamWishExtractor(safeClient, headers) }
     private val universalExtractor by lazy { UniversalExtractor(safeClient) }
 
-    // Aliases de StreamWish (algunos embed usan dominios alternos).
+    
     private val streamWishHosts = listOf(
         "streamwish", "wishembed", "strwish", "playerwish", "wishfast",
     )
@@ -95,7 +93,7 @@ class AnimeID :
     private val unicodeEscapeRegex = Regex("""\\u([0-9a-fA-F]{4})""")
     private val combiningMarksRegex = Regex("""\p{M}+""")
 
-    // ============================== Temporadas (no soportadas) ===============================
+    // ============================== Temporadas (unsupported) ===============================
     override fun seasonListSelector(): String = ""
     override fun seasonFromElement(element: Element): SAnime =
         throw UnsupportedOperationException("Seasons not supported")
@@ -283,7 +281,7 @@ class AnimeID :
         anime.description = document.selectFirst("div.info-a .c .tx p")?.text()?.trim()
         anime.genre = document.select("div.info-a .c .gn li a").joinToString { it.text() }
 
-        // Normalizar acentos: "En emisión" → "En emision" → matchea con "emision"
+        
         val statusText = document
             .selectFirst("div.info-b .dv ul li strong.ee, div.info-b .dv ul li strong.ef")
             ?.text()?.trim()?.stripAccents()
@@ -335,21 +333,20 @@ class AnimeID :
                 .add("u", animeSlug)
                 .add("p", currentPage.toString())
                 .build()
-            // Si la página falla, la excepción sube al caller (Aniyomi muestra error + permite retry).
-            // Solo una respuesta vacía se interpreta como fin de paginación.
+            
             val pageDoc = postToIdEndpoint(formBody)
             val episodesOnPage = pageDoc.select(episodeListSelector()).map { episodeFromElement(it) }
 
             if (episodesOnPage.isEmpty()) break
 
-            // Guarda contra endpoint que repite la misma página (bug del server).
+            
             val pageUrls = episodesOnPage.map { it.url }.toSet()
             if (pageUrls.all { it in seenUrls }) break
 
             allEpisodes.addAll(episodesOnPage)
             seenUrls.addAll(pageUrls)
             currentPage++
-            delay(500) // reducido el riesgo de throttling en el endpoint
+            delay(500)
         }
         return allEpisodes.distinctBy { it.url }.sortedByDescending { it.episode_number }
     }
@@ -377,7 +374,7 @@ class AnimeID :
             } catch (e2: CancellationException) {
                 throw e2
             } catch (e2: Exception) {
-                // Fallback también falló: devolver vacío en vez de romper el resto.
+                
                 emptyList()
             }
         }
@@ -394,7 +391,7 @@ class AnimeID :
                 .add("acc", "opt")
                 .add("i", encryptedId)
                 .build()
-            // Si el "opt" falla, caemos al fallback de #partes.
+            
             val serversDoc = try {
                 postToIdEndpoint(formBody)
             } catch (e: CancellationException) {
@@ -410,14 +407,14 @@ class AnimeID :
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        // Un servidor roto no debe descartar los anteriores.
+                        
                     }
                 }
                 if (videos.isNotEmpty()) return orderVideosByPreferences(videos)
             }
         }
 
-        // Fallback: parsear URLs desde los tabs.
+        
         val scripts: Elements = document.select("#partes div.container li.subtab div.parte")
         for (script in scripts) {
             currentCoroutineContext().ensureActive()
@@ -430,8 +427,7 @@ class AnimeID :
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    // Ignorar y seguir con el siguiente.
-                }
+                    
             }
         }
 
@@ -460,7 +456,7 @@ class AnimeID :
             val decodedUrl = try {
                 encryptedUrl.decodeHexToString()
             } catch (e: Exception) {
-                // Entrada malformada: saltar y seguir con la siguiente.
+                
                 continue
             }
             if (decodedUrl.isNotEmpty() && isSafeUrlString(decodedUrl)) {
