@@ -357,11 +357,11 @@ class AnimeID :
         val embedUrl = url.lowercase()
         return try {
             when {
-                embedUrl.contains("voe") -> voeExtractor.videosFromUrl(url, prefix = "Voe")
+                embedUrl.contains("voe") -> voeExtractor.videosFromUrl(url)
                 embedUrl.contains("mp4upload") ->
-                    mp4uploadExtractor.videosFromUrl(url, headers, prefix = "Mp4upload")
+                    mp4uploadExtractor.videosFromUrl(url, headers)
                 embedUrl.contains("uqload") ->
-                    uqloadExtractor.videosFromUrl(url, prefix = "Uqload")
+                    uqloadExtractor.videosFromUrl(url)
                 streamWishHosts.any { embedUrl.contains(it) } ->
                     streamWishExtractor.videosFromUrl(url, prefix = "StreamWish")
                 else -> universalExtractor.videosFromUrl(url, headers)
