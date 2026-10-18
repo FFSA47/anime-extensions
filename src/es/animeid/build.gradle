@@ -1,6 +1,7 @@
 ext {
     extName = 'AnimeID'
     extClass = '.AnimeID'
+    libVersion = 16
     extVersionCode = 28
 }
 
