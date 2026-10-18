@@ -13,7 +13,7 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpLegacySource
+import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.asJsoup
 import keiyoushi.utils.decodeHexToString
@@ -30,7 +30,7 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
 class AnimeID :
-    ParsedAnimeHttpLegacySource(),
+    ParsedAnimeHttpSource(),
     ConfigurableAnimeSource {
 
     override val name = "AnimeID"
@@ -46,7 +46,7 @@ class AnimeID :
     private val streamWishExtractor by lazy { StreamWishExtractor(client, headers) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
-    // Precompiled regexes (evita rebuild por llamada)
+    // Regex precompiladas (evita rebuild por llamada)
     private val urlRegex =
         """(http|ftp|https)://([\w_-]+(?:(?:\.[\w_-]+)+))([\w.,@?^=%&:/~+#-]*[\w@?^=%&/~+#-])""".toRegex()
     private val unicodeEscapeRegex = Regex("""\\u([0-9a-fA-F]{4})""")
@@ -324,8 +324,8 @@ class AnimeID :
             }
         }
 
-        // Fallback: parse server URLs from tab data (siempre se ejecuta si no hubo early-return)
-        document.select("#partes div.container li.subtab div.parte").forEach { script ->
+        // Fallback: bucle for (no forEach) para poder invocar funciones suspend
+        for (script in document.select("#partes div.container li.subtab div.parte")) {
             val jsonString = script.attr("data")
             val jsonUnescape = unescapeJava(jsonString).replace("\\", "")
             val url = fetchUrls(jsonUnescape).firstOrNull()?.replace("\\\\", "\\") ?: ""
@@ -339,7 +339,7 @@ class AnimeID :
 
     /**
      * Helper único para los POST a `$baseUrl/id`. Devuelve null en IO error o respuesta
-     * no-2xx; `CancellationException` se re-lanza para no romper la cancelación de coroutines.
+     * no-2xx; CancellationException se re-lanza para no romper la cancelación de coroutines.
      */
     private fun postToIdEndpoint(formBody: FormBody): Document? {
         val request = Request.Builder()
