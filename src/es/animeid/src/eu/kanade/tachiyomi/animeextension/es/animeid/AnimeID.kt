@@ -426,7 +426,7 @@ class AnimeID :
                     videos.addAll(serverVideoResolver(url))
                 } catch (e: CancellationException) {
                     throw e
-                } catch (e: Exception) {
+                } catch (_: Exception) {
 
             }
         }
