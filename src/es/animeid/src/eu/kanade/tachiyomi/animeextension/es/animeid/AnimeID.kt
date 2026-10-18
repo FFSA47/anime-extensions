@@ -54,13 +54,10 @@ class AnimeID :
 
     // ============================== Temporadas (no soportadas) ===============================
     override fun seasonListSelector(): String = ""
-    override fun seasonFromElement(element: Element): SAnime =
-        throw UnsupportedOperationException("Seasons not supported")
+    override fun seasonFromElement(element: Element): SAnime = throw UnsupportedOperationException("Seasons not supported")
 
     // ============================== Hoster ===============================
-    override fun hosterListParse(response: Response): List<Hoster> {
-        return listOf(Hoster(hosterUrl = response.request.url.toString()))
-    }
+    override fun hosterListParse(response: Response): List<Hoster> = listOf(Hoster(hosterUrl = response.request.url.toString()))
 
     // ============================== Popular ===============================
     override fun popularAnimeSelector(): String = "div.ul.x5 article.li, div.ul article.li"
@@ -172,40 +169,53 @@ class AnimeID :
         OrderFilter(),
     )
 
-    private class GenreFilter : UriPartFilter(
-        "Género",
-        arrayOf(
-            Pair("Todos", ""), Pair("Acción", "accion"), Pair("Aventura", "aventura"),
-            Pair("Comedia", "comedia"), Pair("Drama", "drama"), Pair("Fantasía", "fantasia"),
-            Pair("Romance", "romance"), Pair("Sci-Fi", "ciencia-ficcion"), Pair("Seinen", "seinen"),
-            Pair("Shounen", "shounen"), Pair("Suspenso", "suspenso"), Pair("Terror", "terror"),
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "Género",
+            arrayOf(
+                Pair("Todos", ""), Pair("Acción", "accion"), Pair("Aventura", "aventura"),
+                Pair("Comedia", "comedia"), Pair("Drama", "drama"), Pair("Fantasía", "fantasia"),
+                Pair("Romance", "romance"), Pair("Sci-Fi", "ciencia-ficcion"), Pair("Seinen", "seinen"),
+                Pair("Shounen", "shounen"), Pair("Suspenso", "suspenso"), Pair("Terror", "terror"),
+            ),
+        )
 
-    private class YearFilter : UriPartFilter(
-        "Año",
-        arrayOf(
-            Pair("Todos", ""), Pair("2026", "2026"), Pair("2025", "2025"), Pair("2024", "2024"),
-            Pair("2023", "2023"), Pair("2022", "2022"), Pair("2021", "2021"), Pair("2020", "2020"),
-        ),
-    )
+    private class YearFilter :
+        UriPartFilter(
+            "Año",
+            arrayOf(
+                Pair("Todos", ""),
+                Pair("2026", "2026"),
+                Pair("2025", "2025"),
+                Pair("2024", "2024"),
+                Pair("2023", "2023"),
+                Pair("2022", "2022"),
+                Pair("2021", "2021"),
+                Pair("2020", "2020"),
+            ),
+        )
 
-    private class StatusFilter : UriPartFilter(
-        "Estado",
-        arrayOf(
-            Pair("Todos", ""), Pair("En emisión", "en-emision"), Pair("Finalizado", "finalizado"),
-        ),
-    )
+    private class StatusFilter :
+        UriPartFilter(
+            "Estado",
+            arrayOf(
+                Pair("Todos", ""),
+                Pair("En emisión", "en-emision"),
+                Pair("Finalizado", "finalizado"),
+            ),
+        )
 
-    private class OrderFilter : UriPartFilter(
-        "Ordenar por",
-        arrayOf(
-            Pair("Recientes", "newest"), Pair("Popularidad", "views"), Pair("A-Z", "asc"),
-        ),
-    )
+    private class OrderFilter :
+        UriPartFilter(
+            "Ordenar por",
+            arrayOf(
+                Pair("Recientes", "newest"),
+                Pair("Popularidad", "views"),
+                Pair("A-Z", "asc"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = if (state > 0) vals[state].second else ""
     }
 
@@ -434,10 +444,9 @@ class AnimeID :
     }
 
     // ============================== Utilities ===============================
-    private fun unescapeJava(escaped: String): String =
-        unicodeEscapeRegex.replace(escaped) { match ->
-            match.groupValues[1].toInt(16).toChar().toString()
-        }
+    private fun unescapeJava(escaped: String): String = unicodeEscapeRegex.replace(escaped) { match ->
+        match.groupValues[1].toInt(16).toChar().toString()
+    }
 
     private fun fetchUrls(text: String?): List<String> {
         if (text.isNullOrEmpty()) return emptyList()
