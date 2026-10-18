@@ -10,12 +10,13 @@ import aniyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpLegacySource
+import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.asJsoup
+import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.decodeHexToString
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.getPreferencesLazy
@@ -28,9 +29,10 @@ import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import org.jsoup.select.Elements
 
 class AnimeID :
-    ParsedAnimeHttpLegacySource(),
+    ParsedAnimeHttpSource(),
     ConfigurableAnimeSource {
 
     override val name = "AnimeID"
@@ -46,10 +48,16 @@ class AnimeID :
     private val streamWishExtractor by lazy { StreamWishExtractor(client, headers) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
-    // Precompiled regexes (evita rebuild por llamada)
     private val urlRegex =
         """(http|ftp|https)://([\w_-]+(?:(?:\.[\w_-]+)+))([\w.,@?^=%&:/~+#-]*[\w@?^=%&/~+#-])""".toRegex()
     private val unicodeEscapeRegex = Regex("""\\u([0-9a-fA-F]{4})""")
+
+    // ============================== Seasons (not supported) ===============================
+    override fun seasonListSelector(): String = ""
+    override fun seasonFromElement(element: Element): SAnime = throw UnsupportedOperationException("Seasons not supported")
+
+    // ============================== Hoster ===============================
+    override fun hosterListParse(response: Response): List<Hoster> = listOf(Hoster(hosterUrl = response.request.url.toString()))
 
     // ============================== Popular ===============================
     override fun popularAnimeSelector(): String = "div.ul.x5 article.li, div.ul article.li"
@@ -161,58 +169,53 @@ class AnimeID :
         OrderFilter(),
     )
 
-    private class GenreFilter : UriPartFilter(
-        "Género",
-        arrayOf(
-            Pair("Todos", ""),
-            Pair("Acción", "accion"),
-            Pair("Aventura", "aventura"),
-            Pair("Comedia", "comedia"),
-            Pair("Drama", "drama"),
-            Pair("Fantasía", "fantasia"),
-            Pair("Romance", "romance"),
-            Pair("Sci-Fi", "ciencia-ficcion"),
-            Pair("Seinen", "seinen"),
-            Pair("Shounen", "shounen"),
-            Pair("Suspenso", "suspenso"),
-            Pair("Terror", "terror"),
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "Género",
+            arrayOf(
+                Pair("Todos", ""), Pair("Acción", "accion"), Pair("Aventura", "aventura"),
+                Pair("Comedia", "comedia"), Pair("Drama", "drama"), Pair("Fantasía", "fantasia"),
+                Pair("Romance", "romance"), Pair("Sci-Fi", "ciencia-ficcion"), Pair("Seinen", "seinen"),
+                Pair("Shounen", "shounen"), Pair("Suspenso", "suspenso"), Pair("Terror", "terror"),
+            ),
+        )
 
-    private class YearFilter : UriPartFilter(
-        "Año",
-        arrayOf(
-            Pair("Todos", ""),
-            Pair("2026", "2026"),
-            Pair("2025", "2025"),
-            Pair("2024", "2024"),
-            Pair("2023", "2023"),
-            Pair("2022", "2022"),
-            Pair("2021", "2021"),
-            Pair("2020", "2020"),
-        ),
-    )
+    private class YearFilter :
+        UriPartFilter(
+            "Año",
+            arrayOf(
+                Pair("Todos", ""),
+                Pair("2026", "2026"),
+                Pair("2025", "2025"),
+                Pair("2024", "2024"),
+                Pair("2023", "2023"),
+                Pair("2022", "2022"),
+                Pair("2021", "2021"),
+                Pair("2020", "2020"),
+            ),
+        )
 
-    private class StatusFilter : UriPartFilter(
-        "Estado",
-        arrayOf(
-            Pair("Todos", ""),
-            Pair("En emisión", "en-emision"),
-            Pair("Finalizado", "finalizado"),
-        ),
-    )
+    private class StatusFilter :
+        UriPartFilter(
+            "Estado",
+            arrayOf(
+                Pair("Todos", ""),
+                Pair("En emisión", "en-emision"),
+                Pair("Finalizado", "finalizado"),
+            ),
+        )
 
-    private class OrderFilter : UriPartFilter(
-        "Ordenar por",
-        arrayOf(
-            Pair("Recientes", "newest"),
-            Pair("Popularidad", "views"),
-            Pair("A-Z", "asc"),
-        ),
-    )
+    private class OrderFilter :
+        UriPartFilter(
+            "Ordenar por",
+            arrayOf(
+                Pair("Recientes", "newest"),
+                Pair("Popularidad", "views"),
+                Pair("A-Z", "asc"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = if (state > 0) vals[state].second else ""
     }
 
@@ -306,7 +309,7 @@ class AnimeID :
         }
     }
 
-    override fun videoListParse(response: Response): List<Video> = runBlocking {
+    override fun videoListParse(response: Response, hoster: Hoster): List<Video> = runBlocking {
         val document = response.asJsoup()
         val videos = mutableListOf<Video>()
 
@@ -324,8 +327,8 @@ class AnimeID :
             }
         }
 
-        // Fallback: parse server URLs from tab data (siempre se ejecuta si no hubo early-return)
-        document.select("#partes div.container li.subtab div.parte").forEach { script ->
+        val scripts: Elements = document.select("#partes div.container li.subtab div.parte")
+        for (script in scripts) {
             val jsonString = script.attr("data")
             val jsonUnescape = unescapeJava(jsonString).replace("\\", "")
             val url = fetchUrls(jsonUnescape).firstOrNull()?.replace("\\\\", "\\") ?: ""
@@ -337,10 +340,6 @@ class AnimeID :
         orderVideosByPreferences(videos)
     }
 
-    /**
-     * Helper único para los POST a `$baseUrl/id`. Devuelve null en IO error o respuesta
-     * no-2xx; `CancellationException` se re-lanza para no romper la cancelación de coroutines.
-     */
     private fun postToIdEndpoint(formBody: FormBody): Document? {
         val request = Request.Builder()
             .url("$baseUrl/id")
@@ -375,18 +374,15 @@ class AnimeID :
         val preferredServer = preferences.getString("animeid_preferred_server", "Voe")?.lowercase()
         val preferredQuality = preferences.getString("animeid_preferred_quality", "any")?.lowercase()
 
-        // Usa el prefijo que ya puso serverVideoResolver (Voe/Mp4upload/Uqload/StreamWish)
-        // para no re-matchear hosts.
         fun detectServer(video: Video): String = when {
-            video.quality.startsWith("Voe", ignoreCase = true) -> "voe"
-            video.quality.startsWith("Mp4upload", ignoreCase = true) -> "mp4upload"
-            video.quality.startsWith("Uqload", ignoreCase = true) -> "uqload"
-            video.quality.startsWith("StreamWish", ignoreCase = true) -> "streamwish"
+            video.videoTitle.startsWith("Voe", ignoreCase = true) -> "voe"
+            video.videoTitle.startsWith("Mp4upload", ignoreCase = true) -> "mp4upload"
+            video.videoTitle.startsWith("Uqload", ignoreCase = true) -> "uqload"
+            video.videoTitle.startsWith("StreamWish", ignoreCase = true) -> "streamwish"
             else -> "other"
         }
 
         fun qualityScore(video: Video): Int {
-            // "automatic" queda por compat. con prefs guardadas viejas.
             if (preferredQuality.isNullOrBlank() ||
                 preferredQuality == "any" ||
                 preferredQuality == "automatic"
@@ -395,9 +391,9 @@ class AnimeID :
             }
             val qToken = "${preferredQuality}p"
             return when {
-                video.quality.contains(qToken, ignoreCase = true) -> 3
-                video.quality.contains(preferredQuality, ignoreCase = true) -> 2
-                video.url.contains("/$qToken", ignoreCase = true) -> 3
+                video.videoTitle.contains(qToken, ignoreCase = true) -> 3
+                video.videoTitle.contains(preferredQuality, ignoreCase = true) -> 2
+                video.videoUrl.contains("/$qToken", ignoreCase = true) -> 3
                 else -> 0
             }
         }
@@ -418,8 +414,8 @@ class AnimeID :
             }
         }
 
-        val addedUrls = order.map { it.url }.toSet()
-        videos.filter { it.url !in addedUrls }.let { leftovers ->
+        val addedUrls = order.map { it.videoUrl }.toSet()
+        videos.filter { it.videoUrl !in addedUrls }.let { leftovers ->
             order.addAll(leftovers.sortedByDescending { qualityScore(it) })
         }
 
@@ -448,17 +444,12 @@ class AnimeID :
     }
 
     // ============================== Utilities ===============================
-    private fun unescapeJava(escaped: String): String =
-        unicodeEscapeRegex.replace(escaped) { match ->
-            match.groupValues[1].toInt(16).toChar().toString()
-        }
+    private fun unescapeJava(escaped: String): String = unicodeEscapeRegex.replace(escaped) { match ->
+        match.groupValues[1].toInt(16).toChar().toString()
+    }
 
     private fun fetchUrls(text: String?): List<String> {
         if (text.isNullOrEmpty()) return emptyList()
         return urlRegex.findAll(text).map { it.value.trim().removeSurrounding("\"") }.toList()
     }
-
-    override fun videoListSelector(): String = throw UnsupportedOperationException()
-    override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
-    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
 }
