@@ -10,12 +10,13 @@ import aniyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.asJsoup
+import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.decodeHexToString
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.getPreferencesLazy
@@ -26,9 +27,9 @@ import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
-import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import org.jsoup.select.Elements
 
 class AnimeID :
     ParsedAnimeHttpSource(),
@@ -47,10 +48,21 @@ class AnimeID :
     private val streamWishExtractor by lazy { StreamWishExtractor(client, headers) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
-    // Regex precompiladas (evita rebuild por llamada)
+    // Regex precompiladas
     private val urlRegex =
         """(http|ftp|https)://([\w_-]+(?:(?:\.[\w_-]+)+))([\w.,@?^=%&:/~+#-]*[\w@?^=%&/~+#-])""".toRegex()
     private val unicodeEscapeRegex = Regex("""\\u([0-9a-fA-F]{4})""")
+
+    // ============================== Temporadas (no soportadas) ===============================
+    override fun seasonListSelector(): String = ""
+    override fun seasonFromElement(element: Element): SAnime = throw UnsupportedOperationException("Seasons not supported")
+
+    // ============================== Hoster ===============================
+    // La web no usa hosters separados, pero la API requiere que exista al menos uno
+    // para que la app invoque videoListParse. Devolvemos un hoster con la URL del episodio.
+    override fun hosterListParse(response: Response): List<Hoster> {
+        return listOf(Hoster(hosterUrl = response.request.url.toString()))
+    }
 
     // ============================== Popular ===============================
     override fun popularAnimeSelector(): String = "div.ul.x5 article.li, div.ul article.li"
@@ -307,7 +319,8 @@ class AnimeID :
         }
     }
 
-    override fun videoListParse(response: Response): List<Video> = runBlocking {
+    // La firma ahora requiere el parámetro hoster (se ignora porque la web no los usa)
+    override fun videoListParse(response: Response, hoster: Hoster): List<Video> = runBlocking {
         val document = response.asJsoup()
         val videos = mutableListOf<Video>()
 
@@ -325,8 +338,9 @@ class AnimeID :
             }
         }
 
-        // Fallback: bucle for (no forEach) para poder invocar funciones suspend
-        for (script in document.select("#partes div.container li.subtab div.parte")) {
+        // Fallback: usar una variable Elements para evitar la ambigüedad de iterator()
+        val scripts: Elements = document.select("#partes div.container li.subtab div.parte")
+        for (script in scripts) {
             val jsonString = script.attr("data")
             val jsonUnescape = unescapeJava(jsonString).replace("\\", "")
             val url = fetchUrls(jsonUnescape).firstOrNull()?.replace("\\\\", "\\") ?: ""
@@ -338,10 +352,6 @@ class AnimeID :
         orderVideosByPreferences(videos)
     }
 
-    /**
-     * Helper único para los POST a `$baseUrl/id`. Devuelve null en IO error o respuesta
-     * no-2xx; CancellationException se re-lanza para no romper la cancelación de coroutines.
-     */
     private fun postToIdEndpoint(formBody: FormBody): Document? {
         val request = Request.Builder()
             .url("$baseUrl/id")
@@ -376,8 +386,6 @@ class AnimeID :
         val preferredServer = preferences.getString("animeid_preferred_server", "Voe")?.lowercase()
         val preferredQuality = preferences.getString("animeid_preferred_quality", "any")?.lowercase()
 
-        // Usa el prefijo que ya puso serverVideoResolver (Voe/Mp4upload/Uqload/StreamWish)
-        // para no re-matchear hosts.
         fun detectServer(video: Video): String = when {
             video.quality.startsWith("Voe", ignoreCase = true) -> "voe"
             video.quality.startsWith("Mp4upload", ignoreCase = true) -> "mp4upload"
@@ -387,7 +395,6 @@ class AnimeID :
         }
 
         fun qualityScore(video: Video): Int {
-            // "automatic" queda por compat. con prefs guardadas viejas.
             if (preferredQuality.isNullOrBlank() ||
                 preferredQuality == "any" ||
                 preferredQuality == "automatic"
@@ -458,8 +465,4 @@ class AnimeID :
         if (text.isNullOrEmpty()) return emptyList()
         return urlRegex.findAll(text).map { it.value.trim().removeSurrounding("\"") }.toList()
     }
-
-    override fun videoListSelector(): String = throw UnsupportedOperationException()
-    override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
-    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
 }
