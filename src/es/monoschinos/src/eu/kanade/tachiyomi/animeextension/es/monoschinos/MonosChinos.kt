@@ -89,7 +89,7 @@ class MonosChinos :
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val document = response.asJsoup()
-        // Selector estable: buscamos enlaces que contengan "/anime/" y que tengan un título (h3/h2)
+        
         val elements = document.select("a[href*='/anime/']").filter { it.selectFirst("h3, h2, .title") != null }
         val nextPage = document.selectFirst("a[rel='next']") != null
         
@@ -103,7 +103,7 @@ class MonosChinos :
         return AnimesPage(animeList, nextPage)
     }
 
-    // ====================== ÚLTIMOS EPISODIOS ======================
+    // ====================== LATEST EPISODES ======================
 
     override fun latestUpdatesRequest(page: Int): Request {
         val url = if (page == 1) baseUrl else "$baseUrl?page=$page"
@@ -112,7 +112,7 @@ class MonosChinos :
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val document = response.asJsoup()
-        // Selector estable: buscamos la sección por su título y luego los enlaces de episodios
+        
         val episodeItems = document.select("section:has(h2:contains(Últimos capítulos)) a[href*='/ver/']")
         
         val animeList = episodeItems.mapNotNull { a ->
@@ -123,7 +123,7 @@ class MonosChinos :
 
             val title = a.selectFirst("h3, h2, .title, .card-title")?.text()?.trim() ?: return@mapNotNull null
             
-            // Buscamos cualquier span o div dentro del enlace que contenga "EP" (ej: "EP 3")
+            
             val episodeNumber = a.select("span, div").firstOrNull { 
                 it.text().trim().startsWith("EP", ignoreCase = true) 
             }?.text()?.replace("EP", "", ignoreCase = true)?.trim() ?: ""
@@ -135,7 +135,7 @@ class MonosChinos :
                     title
                 }
                 setUrlWithoutDomain(animeUrl)
-                // La descripción corta o género suele estar en el último span/div no vacío
+                
                 description = a.select("span, div").lastOrNull { 
                     it.text().trim().isNotEmpty() && !it.text().contains("EP", ignoreCase = true) 
                 }?.text()?.trim()
@@ -147,7 +147,7 @@ class MonosChinos :
         return AnimesPage(animeList, nextPage)
     }
 
-    // ====================== BÚSQUEDA ======================
+    // ====================== SEARCH ======================
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val params = Filters.getSearchParameters(filters)
@@ -160,29 +160,29 @@ class MonosChinos :
 
     override fun searchAnimeParse(response: Response) = popularAnimeParse(response)
 
-    // ====================== DETALLE ======================
+    // ====================== DETAIL ======================
 
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.asJsoup()
         return SAnime.create().apply {
-            // 1. El título suele ser el único h1 en la página de detalles
+            
             title = document.selectFirst("h1")?.text()?.trim() ?: ""
 
-            // 2. Imagen: buscamos la portada o poster, ignorando logos
+            
             thumbnail_url = document.select("img").firstOrNull { img ->
                 val src = img.attr("abs:src").lowercase()
                 src.contains("portada") || src.contains("poster")
             }?.getImageUrl() ?: document.selectFirst("img:not([src*='logo'])")?.getImageUrl()
 
-            // 3. Descripción: buscamos el texto bajo "Sobre la serie" o "Sinopsis completa"
+            
             description = document.selectFirst("h3:contains(Sobre la serie)")?.nextElementSibling()?.text()?.trim()
                 ?: document.selectFirst("p:contains(Sinopsis completa)")?.nextElementSibling()?.text()?.trim()
                 ?: document.select("p").firstOrNull { it.text().length > 50 }?.text()?.trim()
 
-            // 4. Géneros: Selector basado en URL, extremadamente estable
+            
             genre = document.select("a[href*='/genero/']").joinToString { it.text() }
 
-            // 5. Estado: Buscamos la etiqueta "Estado" y leemos su valor hermano, o buscamos las palabras clave
+            
             val statusText = document.selectFirst("span:contains(Estado)")?.nextElementSibling()?.text()?.trim()
                 ?: document.selectFirst("h3:contains(Estado)")?.nextElementSibling()?.text()?.trim()
                 ?: document.select("span, div").firstOrNull { 
@@ -198,7 +198,7 @@ class MonosChinos :
         }
     }
 
-    // ====================== EPISODIOS ======================
+    // ====================== EPISODES ======================
     
     override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
     
@@ -238,7 +238,7 @@ class MonosChinos :
                 .add("_token", csrfToken)
                 .build()
 
-            // --- CORRECCIÓN CRÍTICA: Fusionar headers base con los personalizados ---
+            
             val requestHeaders = headers.newBuilder()
                 .set("Referer", referer)
                 .set("X-Requested-With", "XMLHttpRequest")
@@ -248,7 +248,7 @@ class MonosChinos :
             val request = Request.Builder()
                 .url(paginatedUrl)
                 .post(formBody)
-                .headers(requestHeaders) // <-- Se aplican los headers completos
+                .headers(requestHeaders)
                 .build()
 
             val json = try {
@@ -294,7 +294,7 @@ class MonosChinos :
         return episodes.sortedByDescending { it.episode_number }
     }
 
-    // ====================== HOSTERS / VIDEOS ======================
+    // ====================== HOSTERS/VIDEOS ======================
 
     override fun hosterListParse(response: Response): List<Hoster> {
         val document = response.asJsoup()
@@ -329,7 +329,7 @@ class MonosChinos :
         )
     }
 
-    // ====================== EXTRACTORES ======================
+    // ====================== EXTRACTORS ======================
 
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
     private val streamwishExtractor by lazy { StreamWishExtractor(client, headers) }
@@ -435,7 +435,7 @@ class MonosChinos :
         emptyList()
     }
 
-    // ====================== ORDEN ======================
+    // ====================== ORDER ======================
 
     override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
@@ -449,7 +449,7 @@ class MonosChinos :
         )
     }
 
-    // ====================== AUXILIARES ======================
+    // ====================== ASSISTANTS ======================
 
     private fun matchesPref(text: String, pref: String): Boolean {
         val t = text.lowercase().replace(NON_ALNUM, "")
@@ -473,11 +473,11 @@ class MonosChinos :
         }
     }
 
-    // ====================== FILTROS ======================
+    // ====================== FILTERS ======================
 
     override fun getFilterList(): AnimeFilterList = Filters.FILTER_LIST
 
-    // ====================== PREFERENCIAS ======================
+    // ====================== PREFERENCES ======================
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         ListPreference(screen.context).apply {
