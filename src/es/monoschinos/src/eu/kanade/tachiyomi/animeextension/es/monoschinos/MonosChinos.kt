@@ -339,7 +339,7 @@ class MonosChinos :
     private val streamTapeExtractor by lazy { StreamTapeExtractor(client) }
     private val uqloadExtractor by lazy { UqloadExtractor(client) }
     private val okruExtractor by lazy { OkruExtractor(client) }
-    private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client, headers) }
+    private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
     private val luluExtractor by lazy { LuluExtractor(client, headers) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
@@ -405,7 +405,7 @@ class MonosChinos :
             "okru" -> okruExtractor.videosFromUrl(url)
             "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "Filemoon:")
             "uqload" -> uqloadExtractor.videosFromUrl(url)
-            "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, headers)
+            "mp4upload" -> mp4uploadExtractor.videosFromUrl(url)
             "streamwish" -> streamwishExtractor.videosFromUrl(url, videoNameGen = { "StreamWish:$it" })
             "mixdrop" -> mixdropExtractor.videosFromUrl(url)
             "streamtape" -> streamTapeExtractor.videosFromUrl(url)
