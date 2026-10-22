@@ -405,7 +405,7 @@ class MonosChinos :
             "okru" -> okruExtractor.videosFromUrl(url)
             "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "Filemoon:")
             "uqload" -> uqloadExtractor.videosFromUrl(url)
-            "mp4upload" -> mp4uploadExtractor.videosFromUrl(url)
+            "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, headers)
             "streamwish" -> streamwishExtractor.videosFromUrl(url, videoNameGen = { "StreamWish:$it" })
             "mixdrop" -> mixdropExtractor.videosFromUrl(url)
             "streamtape" -> streamTapeExtractor.videosFromUrl(url)
