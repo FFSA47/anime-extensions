@@ -50,7 +50,6 @@ class AnimeID :
     private val uqloadExtractor by lazy { UqloadExtractor(client) }
     private val streamWishExtractor by lazy { StreamWishExtractor(client, headers) }
     
-    // NUEVOS EXTRACTORES (Basados en MonosChinos)
     private val doodExtractor by lazy { DoodExtractor(client) }
     private val filemoonExtractor by lazy { FilemoonExtractor(client) }
     private val luluExtractor by lazy { LuluExtractor(client, headers) }
@@ -59,6 +58,26 @@ class AnimeID :
 
     private val urlRegex = """(http|ftp|https)://([\w_-]+(?:(?:\.[\w_-]+)+))([\w.,@?^=%&:/~+#-]*[\w@?^=%&/~+#-])""".toRegex()
     private val unicodeEscapeRegex = Regex("""\\u([0-9a-fA-F]{4})""")
+
+    // ============================== CONVENCIONES DE SERVIDORES (ALIAS) ==============================
+    // Mapeo de servidores a sus múltiples dominios/alias para detección precisa
+    private val conventions = listOf(
+        "voe" to listOf("voe", "tubelessceliolymph", "simpulumlamerop", "urochsunloath", "nathanfromsubject", "yip.", "metagnathtuggers", "donaldlineelse"),
+        "filemoon" to listOf("filemoon", "moonplayer", "moviesm4u", "files.im", "filemoon.sx", "bysekoze"),
+        "uqload" to listOf("uqload", "upload"),
+        "mp4upload" to listOf("mp4upload"),
+        "streamwish" to listOf("wishembed", "streamwish", "strwish", "wish", "kswplayer", "swhoi", "multimovies", "uqloads", "neko-stream", "swdyu", "iplayerhls", "streamgg"),
+        "doodstream" to listOf("doodstream", "dood.", "ds2play", "doods.", "ds2video", "dooood", "d000d", "d0000d", "dooodster", "dvsplayer", "dvsplay", "playmogo"),
+        "lulu" to listOf("luluvdo", "lulu", "lulustream"),
+    )
+
+    // Dominios de respaldo para DoodStream (cambian constantemente)
+    private val doodstreamDomains = listOf(
+        "dvsplay.com", "doodstream.com", "dooodster.com", "dood.to", "dooood.com",
+        "doods.pro", "d000d.com", "ds2play.com", "ds2video.com", "d0000d.com",
+        "playmogo.com", "dvsplayer.com",
+    )
+    private var cachedDoodDomain: String? = null
 
     // ============================== Seasons (not supported) ===============================
     override fun seasonListSelector(): String = ""
@@ -236,19 +255,37 @@ class AnimeID :
     }
 
     // ============================== Videos ===============================
+    
+    // RESOLVER CON DETECCIÓN DE ALIAS (CONVENTIONS)
     private suspend fun serverVideoResolver(url: String): List<Video> {
-        val embedUrl = url.lowercase()
+        val source = url.lowercase()
+        
+        // Buscamos si la URL contiene alguno de los alias definidos en conventions
+        val matched = conventions.firstOrNull { (_, aliases) ->
+            aliases.any { it in source }
+        }?.first
+
         return try {
-            when {
-                embedUrl.contains("voe") -> voeExtractor.videosFromUrl(url, prefix = "Voe")
-                embedUrl.contains("mp4upload") -> mp4uploadExtractor.videosFromUrl(url, headers, prefix = "Mp4upload")
-                embedUrl.contains("uqload") -> uqloadExtractor.videosFromUrl(url, prefix = "Uqload")
-                embedUrl.contains("streamwish") -> streamWishExtractor.videosFromUrl(url, prefix = "StreamWish")
+            when (matched) {
+                "voe" -> voeExtractor.videosFromUrl(url, prefix = "Voe")
+                "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, prefix = "Mp4upload")
+                "uqload" -> uqloadExtractor.videosFromUrl(url, prefix = "Uqload")
+                "streamwish" -> streamWishExtractor.videosFromUrl(url, prefix = "StreamWish")
+                "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "Filemoon:")
+                "lulu" -> luluExtractor.videosFromUrl(url, prefix = "LuluStream:")
                 
-                // NUEVOS EXTRACTORES AGREGADOS
-                embedUrl.contains("dood") -> doodExtractor.videosFromUrl(url, "DoodStream:")
-                embedUrl.contains("filemoon") -> filemoonExtractor.videosFromUrl(url, prefix = "Filemoon:")
-                embedUrl.contains("lulu") -> luluExtractor.videosFromUrl(url, prefix = "LuluStream:")
+                // DOODSTREAM CON RESPALDO DE DOMINIOS
+                "doodstream" -> {
+                    val candidates = buildDoodCandidates(url)
+                    for (candidate in candidates) {
+                        val videos = tryDoodExtract(candidate)
+                        if (videos.isNotEmpty()) {
+                            candidate.toHttpUrlOrNull()?.host?.let { cachedDoodDomain = it }
+                            return videos
+                        }
+                    }
+                    emptyList()
+                }
                 
                 else -> universalExtractor.videosFromUrl(url, headers)
             }
@@ -257,6 +294,28 @@ class AnimeID :
         } catch (e: Exception) {
             universalExtractor.videosFromUrl(url, headers)
         }
+    }
+
+    // Genera URLs alternativas para DoodStream si el dominio original falla
+    private fun buildDoodCandidates(url: String): List<String> {
+        val httpUrl = url.toHttpUrlOrNull() ?: return listOf(url)
+        val path = httpUrl.encodedPath
+        val query = httpUrl.encodedQuery
+
+        val orderedDomains = buildList {
+            cachedDoodDomain?.let { add(it) }
+            addAll(doodstreamDomains.filter { it != cachedDoodDomain })
+        }
+
+        return orderedDomains.map { host ->
+            if (query != null) "https://$host$path?$query" else "https://$host$path"
+        }
+    }
+
+    private suspend fun tryDoodExtract(url: String): List<Video> = try {
+        doodExtractor.videosFromUrl(url, "DoodStream:")
+    } catch (_: Exception) {
+        emptyList()
     }
 
     override fun videoListParse(response: Response, hoster: Hoster): List<Video> = runBlocking {
@@ -334,7 +393,6 @@ class AnimeID :
             video.videoTitle.startsWith("Mp4upload", ignoreCase = true) -> "mp4upload"
             video.videoTitle.startsWith("Uqload", ignoreCase = true) -> "uqload"
             video.videoTitle.startsWith("StreamWish", ignoreCase = true) -> "streamwish"
-            // NUEVOS SERVIDORES PARA DETECCIÓN
             video.videoTitle.startsWith("DoodStream", ignoreCase = true) -> "doodstream"
             video.videoTitle.startsWith("Filemoon", ignoreCase = true) -> "filemoon"
             video.videoTitle.startsWith("LuluStream", ignoreCase = true) -> "lulustream"
@@ -363,7 +421,6 @@ class AnimeID :
             }
         }
 
-        // ORDEN DE PRIORIDAD ACTUALIZADO CON LOS NUEVOS SERVIDORES
         for (srv in listOf("voe", "mp4upload", "uqload", "streamwish", "doodstream", "filemoon", "lulustream", "other")) {
             if (srv == preferredServer) continue
             grouped[srv]?.let { list ->
@@ -384,7 +441,6 @@ class AnimeID :
         ListPreference(screen.context).apply {
             key = "animeid_preferred_server"
             title = "Preferred server"
-            // NUEVOS SERVIDORES AGREGADOS A LAS PREFERENCIAS
             entries = arrayOf("Voe", "Mp4upload", "Uqload", "StreamWish", "DoodStream", "Filemoon", "LuluStream")
             entryValues = arrayOf("voe", "mp4upload", "uqload", "streamwish", "doodstream", "filemoon", "lulustream")
             setDefaultValue("voe")
