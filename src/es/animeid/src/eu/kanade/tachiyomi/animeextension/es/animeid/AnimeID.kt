@@ -44,7 +44,7 @@ class AnimeID :
 
     private val preferences by getPreferencesLazy()
 
-    // ============================== EXTRACTORES ==============================
+    // ============================== EXTRACTORS ==============================
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
     private val uqloadExtractor by lazy { UqloadExtractor(client) }
@@ -59,8 +59,8 @@ class AnimeID :
     private val urlRegex = """(http|ftp|https)://([\w_-]+(?:(?:\.[\w_-]+)+))([\w.,@?^=%&:/~+#-]*[\w@?^=%&/~+#-])""".toRegex()
     private val unicodeEscapeRegex = Regex("""\\u([0-9a-fA-F]{4})""")
 
-    // ============================== CONVENCIONES DE SERVIDORES (ALIAS) ==============================
-    // Mapeo de servidores a sus múltiples dominios/alias para detección precisa
+    // ============================== SERVER CONVENTIONS (ALIAS) ==============================
+    
     private val conventions = listOf(
         "voe" to listOf("voe", "tubelessceliolymph", "simpulumlamerop", "urochsunloath", "nathanfromsubject", "yip.", "metagnathtuggers", "donaldlineelse"),
         "filemoon" to listOf("filemoon", "moonplayer", "moviesm4u", "files.im", "filemoon.sx", "bysekoze"),
@@ -71,7 +71,7 @@ class AnimeID :
         "lulu" to listOf("luluvdo", "lulu", "lulustream"),
     )
 
-    // Dominios de respaldo para DoodStream (cambian constantemente)
+    // Backup domains for DoodStream (constantly changing)
     private val doodstreamDomains = listOf(
         "dvsplay.com", "doodstream.com", "dooodster.com", "dood.to", "dooood.com",
         "doods.pro", "d000d.com", "ds2play.com", "ds2video.com", "d0000d.com",
@@ -256,11 +256,11 @@ class AnimeID :
 
     // ============================== Videos ===============================
     
-    // RESOLVER CON DETECCIÓN DE ALIAS (CONVENTIONS)
+    
     private suspend fun serverVideoResolver(url: String): List<Video> {
         val source = url.lowercase()
         
-        // Buscamos si la URL contiene alguno de los alias definidos en conventions
+        
         val matched = conventions.firstOrNull { (_, aliases) ->
             aliases.any { it in source }
         }?.first
@@ -274,7 +274,7 @@ class AnimeID :
                 "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "Filemoon:")
                 "lulu" -> luluExtractor.videosFromUrl(url, prefix = "LuluStream:")
                 
-                // DOODSTREAM CON RESPALDO DE DOMINIOS
+            
                 "doodstream" -> {
                     val candidates = buildDoodCandidates(url)
                     for (candidate in candidates) {
@@ -296,7 +296,7 @@ class AnimeID :
         }
     }
 
-    // Genera URLs alternativas para DoodStream si el dominio original falla
+    // Generates alternative URLs for DoodStream if the original domain fails
     private fun buildDoodCandidates(url: String): List<String> {
         val httpUrl = url.toHttpUrlOrNull() ?: return listOf(url)
         val path = httpUrl.encodedPath
