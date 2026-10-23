@@ -241,7 +241,7 @@ class AnimeID :
         return try {
             when {
                 embedUrl.contains("voe") -> voeExtractor.videosFromUrl(url, prefix = "Voe")
-                embedUrl.contains("mp4upload") -> mp4uploadExtractor.videosFromUrl(url, prefix = "Mp4upload")
+                embedUrl.contains("mp4upload") -> mp4uploadExtractor.videosFromUrl(url, headers, prefix = "Mp4upload")
                 embedUrl.contains("uqload") -> uqloadExtractor.videosFromUrl(url, prefix = "Uqload")
                 embedUrl.contains("streamwish") -> streamWishExtractor.videosFromUrl(url, prefix = "StreamWish")
                 
