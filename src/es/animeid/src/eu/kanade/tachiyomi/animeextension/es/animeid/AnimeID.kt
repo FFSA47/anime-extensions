@@ -2,6 +2,9 @@ package eu.kanade.tachiyomi.animeextension.es.animeid
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.luluextractor.LuluExtractor
 import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import aniyomi.lib.universalextractor.UniversalExtractor
@@ -41,10 +44,17 @@ class AnimeID :
 
     private val preferences by getPreferencesLazy()
 
+    // ============================== EXTRACTORES ==============================
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
     private val uqloadExtractor by lazy { UqloadExtractor(client) }
     private val streamWishExtractor by lazy { StreamWishExtractor(client, headers) }
+    
+    // NUEVOS EXTRACTORES (Basados en MonosChinos)
+    private val doodExtractor by lazy { DoodExtractor(client) }
+    private val filemoonExtractor by lazy { FilemoonExtractor(client) }
+    private val luluExtractor by lazy { LuluExtractor(client, headers) }
+    
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
     private val urlRegex = """(http|ftp|https)://([\w_-]+(?:(?:\.[\w_-]+)+))([\w.,@?^=%&:/~+#-]*[\w@?^=%&/~+#-])""".toRegex()
@@ -219,7 +229,7 @@ class AnimeID :
             
             allEpisodes.addAll(episodesOnPage)
             currentPage++
-            delay(100) // Coroutines-friendly delay, acceptable for aggressive servers
+            delay(100)
         }
         
         allEpisodes.distinctBy { it.url }.sortedByDescending { it.episode_number }
@@ -234,6 +244,12 @@ class AnimeID :
                 embedUrl.contains("mp4upload") -> mp4uploadExtractor.videosFromUrl(url, prefix = "Mp4upload")
                 embedUrl.contains("uqload") -> uqloadExtractor.videosFromUrl(url, prefix = "Uqload")
                 embedUrl.contains("streamwish") -> streamWishExtractor.videosFromUrl(url, prefix = "StreamWish")
+                
+                // NUEVOS EXTRACTORES AGREGADOS
+                embedUrl.contains("dood") -> doodExtractor.videosFromUrl(url, "DoodStream:")
+                embedUrl.contains("filemoon") -> filemoonExtractor.videosFromUrl(url, prefix = "Filemoon:")
+                embedUrl.contains("lulu") -> luluExtractor.videosFromUrl(url, prefix = "LuluStream:")
+                
                 else -> universalExtractor.videosFromUrl(url, headers)
             }
         } catch (e: CancellationException) {
@@ -275,7 +291,6 @@ class AnimeID :
         orderVideosByPreferences(videos)
     }
 
-    
     private fun postToIdEndpoint(formBody: FormBody): Document? {
         val requestHeaders = headers.newBuilder()
             .set("X-Requested-With", "XMLHttpRequest")
@@ -311,7 +326,7 @@ class AnimeID :
     }
 
     private fun orderVideosByPreferences(videos: List<Video>): List<Video> {
-        val preferredServer = preferences.getString("animeid_preferred_server", "Voe")?.lowercase()
+        val preferredServer = preferences.getString("animeid_preferred_server", "voe")?.lowercase()
         val preferredQuality = preferences.getString("animeid_preferred_quality", "any")?.lowercase()
 
         fun detectServer(video: Video): String = when {
@@ -319,6 +334,10 @@ class AnimeID :
             video.videoTitle.startsWith("Mp4upload", ignoreCase = true) -> "mp4upload"
             video.videoTitle.startsWith("Uqload", ignoreCase = true) -> "uqload"
             video.videoTitle.startsWith("StreamWish", ignoreCase = true) -> "streamwish"
+            // NUEVOS SERVIDORES PARA DETECCIÓN
+            video.videoTitle.startsWith("DoodStream", ignoreCase = true) -> "doodstream"
+            video.videoTitle.startsWith("Filemoon", ignoreCase = true) -> "filemoon"
+            video.videoTitle.startsWith("LuluStream", ignoreCase = true) -> "lulustream"
             else -> "other"
         }
 
@@ -344,7 +363,8 @@ class AnimeID :
             }
         }
 
-        for (srv in listOf("voe", "mp4upload", "uqload", "streamwish", "other")) {
+        // ORDEN DE PRIORIDAD ACTUALIZADO CON LOS NUEVOS SERVIDORES
+        for (srv in listOf("voe", "mp4upload", "uqload", "streamwish", "doodstream", "filemoon", "lulustream", "other")) {
             if (srv == preferredServer) continue
             grouped[srv]?.let { list ->
                 order.addAll(list.sortedByDescending { qualityScore(it) })
@@ -364,8 +384,9 @@ class AnimeID :
         ListPreference(screen.context).apply {
             key = "animeid_preferred_server"
             title = "Preferred server"
-            entries = arrayOf("Voe", "Mp4upload", "Uqload", "StreamWish")
-            entryValues = arrayOf("voe", "mp4upload", "uqload", "streamwish")
+            // NUEVOS SERVIDORES AGREGADOS A LAS PREFERENCIAS
+            entries = arrayOf("Voe", "Mp4upload", "Uqload", "StreamWish", "DoodStream", "Filemoon", "LuluStream")
+            entryValues = arrayOf("voe", "mp4upload", "uqload", "streamwish", "doodstream", "filemoon", "lulustream")
             setDefaultValue("voe")
             summary = "%s"
         }.also(screen::addPreference)
