@@ -49,18 +49,18 @@ class AnimeID :
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
     private val uqloadExtractor by lazy { UqloadExtractor(client) }
     private val streamWishExtractor by lazy { StreamWishExtractor(client, headers) }
-    
+
     private val doodExtractor by lazy { DoodExtractor(client) }
     private val filemoonExtractor by lazy { FilemoonExtractor(client) }
     private val luluExtractor by lazy { LuluExtractor(client, headers) }
-    
+
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
     private val urlRegex = """(http|ftp|https)://([\w_-]+(?:(?:\.[\w_-]+)+))([\w.,@?^=%&:/~+#-]*[\w@?^=%&/~+#-])""".toRegex()
     private val unicodeEscapeRegex = Regex("""\\u([0-9a-fA-F]{4})""")
 
     // ============================== SERVER CONVENTIONS (ALIAS) ==============================
-    
+
     private val conventions = listOf(
         "voe" to listOf("voe", "tubelessceliolymph", "simpulumlamerop", "urochsunloath", "nathanfromsubject", "yip.", "metagnathtuggers", "donaldlineelse"),
         "filemoon" to listOf("filemoon", "moonplayer", "moviesm4u", "files.im", "filemoon.sx", "bysekoze"),
@@ -99,14 +99,14 @@ class AnimeID :
         val linkElement = element.selectFirst("a") ?: throw Exception("AnimeID: no <a> element found")
         val httpUrl = linkElement.absUrl("href").toHttpUrlOrNull()
             ?: throw Exception("AnimeID: invalid href '${linkElement.attr("href")}'")
-        
+
         anime.setUrlWithoutDomain(httpUrl.encodedPath + (httpUrl.encodedQuery?.let { "?$it" } ?: ""))
         anime.title = linkElement.selectFirst("span")?.text()?.trim() ?: throw Exception("AnimeID: missing title")
 
         element.selectFirst("figure.i img")?.let { img ->
             img.absUrl("data-src").takeIf { it.isNotEmpty() } ?: img.absUrl("src").takeIf { it.isNotEmpty() }
         }?.let { anime.thumbnail_url = it }
-        
+
         return anime
     }
 
@@ -125,7 +125,7 @@ class AnimeID :
         val linkElement = element.selectFirst("a") ?: throw Exception("AnimeID: no <a> element found")
         val httpUrl = linkElement.absUrl("href").toHttpUrlOrNull()
             ?: throw Exception("AnimeID: invalid href '${linkElement.attr("href")}'")
-        
+
         val path = httpUrl.encodedPath.removePrefix("/")
         val animeSlug = if ("ver/" in path) {
             path.substringAfter("ver/").substringBeforeLast("-")
@@ -133,14 +133,14 @@ class AnimeID :
             path.substringBeforeLast("-")
         }
         if (animeSlug.isBlank()) throw Exception("AnimeID: could not parse slug")
-        
+
         anime.setUrlWithoutDomain("/$animeSlug")
         anime.title = linkElement.selectFirst("span")?.text()?.trim() ?: throw Exception("AnimeID: missing title")
 
         element.selectFirst("figure.i img")?.let { img ->
             img.absUrl("data-src").takeIf { it.isNotEmpty() } ?: img.absUrl("src").takeIf { it.isNotEmpty() }
         }?.let { anime.thumbnail_url = it }
-        
+
         return anime
     }
 
@@ -183,21 +183,21 @@ class AnimeID :
     override fun animeDetailsParse(document: Document): SAnime {
         val anime = SAnime.create()
         anime.title = document.selectFirst("div.info-a .c h1")?.text()?.trim() ?: throw Exception("AnimeID: title not found")
-        
+
         anime.thumbnail_url = document.selectFirst("div.info-a .i img")?.let { img ->
             img.absUrl("data-src").takeIf { it.isNotEmpty() } ?: img.absUrl("src").takeIf { it.isNotEmpty() }
         }
-        
+
         anime.description = document.selectFirst("div.info-a .c .tx p")?.text()?.trim()
         anime.genre = document.select("div.info-a .c .gn li a").joinToString { it.text() }
-        
+
         val statusText = document.selectFirst("div.info-b .dv ul li strong.ee, div.info-b .dv ul li strong.ef")?.text()?.trim()
         anime.status = when {
             statusText?.contains("emision", ignoreCase = true) == true -> SAnime.ONGOING
             statusText?.contains("finalizada", ignoreCase = true) == true -> SAnime.COMPLETED
             else -> SAnime.UNKNOWN
         }
-        
+
         return anime
     }
 
@@ -209,16 +209,16 @@ class AnimeID :
         val linkElement = element.selectFirst("a") ?: throw Exception("AnimeID: no <a> in episode")
         val httpUrl = linkElement.absUrl("href").toHttpUrlOrNull()
             ?: throw Exception("AnimeID: invalid episode href '${linkElement.attr("href")}'")
-        
+
         val episodeNumber = httpUrl.encodedPath.substringAfterLast("-").toFloatOrNull() ?: 1f
         episode.setUrlWithoutDomain(httpUrl.encodedPath + (httpUrl.encodedQuery?.let { "?$it" } ?: ""))
-        
+
         val episodeDisplay = if (episodeNumber == episodeNumber.toInt().toFloat()) {
             episodeNumber.toInt().toString()
         } else {
             episodeNumber.toString()
         }
-        
+
         episode.name = "Episodio $episodeDisplay"
         episode.episode_number = episodeNumber
         return episode
@@ -240,27 +240,25 @@ class AnimeID :
                 .add("u", animeSlug)
                 .add("p", currentPage.toString())
                 .build()
-            
+
             val pageDoc = postToIdEndpoint(formBody) ?: break
             val episodesOnPage = pageDoc.select(episodeListSelector()).map { episodeFromElement(it) }
-            
+
             if (episodesOnPage.isEmpty()) break
-            
+
             allEpisodes.addAll(episodesOnPage)
             currentPage++
             delay(100)
         }
-        
+
         allEpisodes.distinctBy { it.url }.sortedByDescending { it.episode_number }
     }
 
     // ============================== Videos ===============================
-    
-    
+
     private suspend fun serverVideoResolver(url: String): List<Video> {
         val source = url.lowercase()
-        
-        
+
         val matched = conventions.firstOrNull { (_, aliases) ->
             aliases.any { it in source }
         }?.first
@@ -273,8 +271,7 @@ class AnimeID :
                 "streamwish" -> streamWishExtractor.videosFromUrl(url, prefix = "StreamWish")
                 "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "Filemoon:")
                 "lulu" -> luluExtractor.videosFromUrl(url, prefix = "LuluStream:")
-                
-            
+
                 "doodstream" -> {
                     val candidates = buildDoodCandidates(url)
                     for (candidate in candidates) {
@@ -286,7 +283,7 @@ class AnimeID :
                     }
                     emptyList()
                 }
-                
+
                 else -> universalExtractor.videosFromUrl(url, headers)
             }
         } catch (e: CancellationException) {
@@ -328,7 +325,7 @@ class AnimeID :
                 .add("acc", "opt")
                 .add("i", encryptedId)
                 .build()
-            
+
             postToIdEndpoint(formBody)?.let { serversDoc ->
                 for (pageUrl in parseServerUrls(serversDoc)) {
                     videos.addAll(serverVideoResolver(pageUrl))
@@ -361,7 +358,7 @@ class AnimeID :
             .post(formBody)
             .headers(requestHeaders)
             .build()
-            
+
         return try {
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return@use null
