@@ -12,5 +12,8 @@ dependencies {
     implementation(project(':lib:mp4uploadextractor'))
     implementation(project(':lib:streamwishextractor'))
     implementation(project(':lib:uqloadextractor'))
+    implementation(project(':lib:doodextractor'))
+    implementation(project(':lib:filemoonextractor'))
+    implementation(project(':lib:luluextractor'))
     implementation(project(':lib:universalextractor'))
 }
