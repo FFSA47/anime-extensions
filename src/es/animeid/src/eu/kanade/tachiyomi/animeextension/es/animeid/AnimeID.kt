@@ -268,7 +268,7 @@ class AnimeID :
         return try {
             when (matched) {
                 "voe" -> voeExtractor.videosFromUrl(url, prefix = "Voe")
-                "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, prefix = "Mp4upload")
+                "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, headers, prefix = "Mp4upload")
                 "uqload" -> uqloadExtractor.videosFromUrl(url, prefix = "Uqload")
                 "streamwish" -> streamWishExtractor.videosFromUrl(url, prefix = "StreamWish")
                 "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "Filemoon:")
