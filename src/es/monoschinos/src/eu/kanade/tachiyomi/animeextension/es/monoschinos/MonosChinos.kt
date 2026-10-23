@@ -76,7 +76,7 @@ class MonosChinos :
             "Mp4Upload" to listOf("mp4upload"),
             "LuluStream" to listOf("lulustream", "lulu", "luluvdo"),
         )
-        
+
         private val EPISODE_SLUG_REGEX = Regex("-episodio-(\\d+|[\\d.]+)$")
         private val SUB_ES_REGEX = Regex("-sub-espanol$")
         private val QUALITY_REGEX = Regex("""(\d+)p""")
@@ -89,10 +89,10 @@ class MonosChinos :
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val document = response.asJsoup()
-        
+
         val elements = document.select("a[href*='/anime/']").filter { it.selectFirst("h3, h2, .title") != null }
         val nextPage = document.selectFirst("a[rel='next']") != null
-        
+
         val animeList = elements.mapNotNull { element ->
             SAnime.create().apply {
                 title = element.selectFirst("h3, h2, .title")?.text()?.trim() ?: return@mapNotNull null
@@ -112,9 +112,9 @@ class MonosChinos :
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val document = response.asJsoup()
-        
+
         val episodeItems = document.select("section:has(h2:contains(Últimos capítulos)) a[href*='/ver/']")
-        
+
         val animeList = episodeItems.mapNotNull { a ->
             val episodeUrl = a.attr("abs:href")
             val episodeSlug = episodeUrl.substringAfter("/ver/").substringBefore("?")
@@ -122,10 +122,9 @@ class MonosChinos :
             val animeUrl = "/anime/$animeSlugBase-sub-espanol"
 
             val title = a.selectFirst("h3, h2, .title, .card-title")?.text()?.trim() ?: return@mapNotNull null
-            
-            
-            val episodeNumber = a.select("span, div").firstOrNull { 
-                it.text().trim().startsWith("EP", ignoreCase = true) 
+
+            val episodeNumber = a.select("span, div").firstOrNull {
+                it.text().trim().startsWith("EP", ignoreCase = true)
             }?.text()?.replace("EP", "", ignoreCase = true)?.trim() ?: ""
 
             SAnime.create().apply {
@@ -135,9 +134,9 @@ class MonosChinos :
                     title
                 }
                 setUrlWithoutDomain(animeUrl)
-                
-                description = a.select("span, div").lastOrNull { 
-                    it.text().trim().isNotEmpty() && !it.text().contains("EP", ignoreCase = true) 
+
+                description = a.select("span, div").lastOrNull {
+                    it.text().trim().isNotEmpty() && !it.text().contains("EP", ignoreCase = true)
                 }?.text()?.trim()
                 thumbnail_url = a.selectFirst("img")?.getImageUrl()
             }
@@ -165,28 +164,23 @@ class MonosChinos :
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.asJsoup()
         return SAnime.create().apply {
-            
             title = document.selectFirst("h1")?.text()?.trim() ?: ""
 
-            
             thumbnail_url = document.select("img").firstOrNull { img ->
                 val src = img.attr("abs:src").lowercase()
                 src.contains("portada") || src.contains("poster")
             }?.getImageUrl() ?: document.selectFirst("img:not([src*='logo'])")?.getImageUrl()
 
-            
             description = document.selectFirst("h3:contains(Sobre la serie)")?.nextElementSibling()?.text()?.trim()
                 ?: document.selectFirst("p:contains(Sinopsis completa)")?.nextElementSibling()?.text()?.trim()
                 ?: document.select("p").firstOrNull { it.text().length > 50 }?.text()?.trim()
 
-            
             genre = document.select("a[href*='/genero/']").joinToString { it.text() }
 
-            
             val statusText = document.selectFirst("span:contains(Estado)")?.nextElementSibling()?.text()?.trim()
                 ?: document.selectFirst("h3:contains(Estado)")?.nextElementSibling()?.text()?.trim()
-                ?: document.select("span, div").firstOrNull { 
-                    it.text().trim() in listOf("Estreno", "En emisión", "Finalizado") 
+                ?: document.select("span, div").firstOrNull {
+                    it.text().trim() in listOf("Estreno", "En emisión", "Finalizado")
                 }?.text()?.trim()
                 ?: "Desconocido"
 
@@ -199,9 +193,9 @@ class MonosChinos :
     }
 
     // ====================== EPISODES ======================
-    
+
     override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
-    
+
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()
         val referer = document.location()
@@ -238,7 +232,6 @@ class MonosChinos :
                 .add("_token", csrfToken)
                 .build()
 
-            
             val requestHeaders = headers.newBuilder()
                 .set("Referer", referer)
                 .set("X-Requested-With", "XMLHttpRequest")
@@ -460,7 +453,7 @@ class MonosChinos :
             k.isNotEmpty() && (t.contains(k) || k.contains(t))
         }
     }
-    
+
     private fun Element.getImageUrl(): String? {
         val candidates = listOf("data-src", "data-lazy-src", "srcset", "src")
         return candidates.mapNotNull { name ->
