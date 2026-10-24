@@ -33,20 +33,16 @@ class VeoHentai : AnimeHttpSource() {
         .add("Referer", "$baseUrl/")
         .build()
 
-    // Regex cacheadas a nivel de clase (regla del repo)
+    // Regex cacheadas
     private val whitespaceRegex = Regex("\\s+")
     private val trailingQueryRegex = Regex("\\?\\d+$")
     private val episodeSuffixRegex = Regex("-(episodio|episode)-\\d+.*$", RegexOption.IGNORE_CASE)
     private val episodeTitleRegex = Regex("\\s+(Episodio|Episode)\\s+\\d+.*$", RegexOption.IGNORE_CASE)
     private val episodeNumberRegex = Regex("(?:Episodio|Episode)\\s+(\\d+)", RegexOption.IGNORE_CASE)
     private val hrefEpisodeRegex = Regex("(?:episodio|episode)-(\\d+)", RegexOption.IGNORE_CASE)
-    private val videoSrcVideoRegex = Regex("""<video[^>]+src=["']([^"']+)["']""")
-    private val videoSrcSourceRegex = Regex("""<source[^>]+src=["']([^"']+)["']""")
-    private val videoVarRegex = Regex(
-        """(?:file|src|url|videoUrl|source)\s*[:=]\s*["'](https?://[^"']+\.(?:mp4|m3u8)[^"']*)["']""",
-        RegexOption.IGNORE_CASE,
-    )
-    private val videoAnyUrlRegex = Regex("""["'](https?://[^"']+\.(?:mp4|m3u8)[^"']*)["']""")
+    private val playerCoreTokenRegex = Regex("""player-core-v2\.php\?t=([^"'&\s]+)""")
+    private val jsUrlRegex = Regex("""(https?://[^"'\s\\]+\.(?:mp4|m3u8)[^"'\s\\]*)""")
+    private val jsJsonUrlRegex = Regex(""""(?:url|file|src|videoUrl|source)"\s*:\s*"([^"]+\.(?:mp4|m3u8)[^"]*)"""")
 
     // ---------------- Populares ----------------
 
@@ -208,7 +204,7 @@ class VeoHentai : AnimeHttpSource() {
             }
     }
 
-    // ---------------- Resolución diferida (suspend) ----------------
+    // ---------------- Resolución diferida ----------------
 
     override suspend fun resolveVideo(video: Video): Video? {
         val data = video.internalData ?: return null
@@ -228,15 +224,7 @@ class VeoHentai : AnimeHttpSource() {
         )
     }
 
-    /**
-     * Estrategia:
-     *  1) Pedir player.php y guardar cookies de Set-Cookie (algunos CDN las exigen).
-     *  2) Intentar extraer URL directa del HTML de player.php.
-     *  3) Fallback: decodificar el `vid` en base64 y probar variantes de URL.
-     * Se valida cada candidata con un GET Range: bytes=0-1; la primera 200/206 gana.
-     */
     private suspend fun resolveVideoUrlSuspend(playerPhpUrl: String, dataId: String): String? {
-        // 1) Cookies de player.php
         var cookies = ""
         try {
             client.get(playerPhpUrl, playerHeaders, ensureSuccess = false).use { resp ->
@@ -244,20 +232,30 @@ class VeoHentai : AnimeHttpSource() {
             }
         } catch (_: Exception) {}
 
-        // 2) Intentar sacar la URL del HTML de player.php
+        // 2) Obtener el token de player-core-v2.php y parsear la URL del JS
         try {
-            val html = client.get(playerPhpUrl, playerHeaders, ensureSuccess = false)
+            val playerHtml = client.get(playerPhpUrl, playerHeaders, ensureSuccess = false)
                 .use { it.body?.string() ?: "" }
-            val htmlCandidates = mutableListOf<String>()
-            for (regex in listOf(videoSrcVideoRegex, videoSrcSourceRegex, videoVarRegex, videoAnyUrlRegex)) {
-                regex.find(html)?.groupValues?.get(1)?.let { htmlCandidates.add(it) }
-            }
-            for (c in htmlCandidates) {
-                if (testVideoUrl(c, playerPhpUrl, cookies)) return c
+            val token = playerCoreTokenRegex.find(playerHtml)?.groupValues?.get(1)
+            if (token != null) {
+                val coreUrl = "$playerBase/player-core-v2.php?t=$token&_=${System.currentTimeMillis() / 1000}"
+                val coreJs = client.get(coreUrl, playerHeaders, ensureSuccess = false)
+                    .use { it.body?.string() ?: "" }
+
+                val candidates = mutableListOf<String>()
+                jsUrlRegex.findAll(coreJs).forEach { m ->
+                    candidates.add(m.groupValues[1].replace("\\/", "/"))
+                }
+                jsJsonUrlRegex.findAll(coreJs).forEach { m ->
+                    candidates.add(m.groupValues[1].replace("\\/", "/"))
+                }
+                for (c in candidates.distinct()) {
+                    if (testVideoUrl(c, playerPhpUrl, cookies)) return c
+                }
             }
         } catch (_: Exception) {}
 
-        // 3) Fallback: base64 con variantes
+        // 3) Fallback al base64 con variantes
         val vidParam = dataId.parseQueryParam("vid") ?: return null
         val decoded = decodeBase64Safe(vidParam) ?: return null
         val parts = decoded.split("|")
