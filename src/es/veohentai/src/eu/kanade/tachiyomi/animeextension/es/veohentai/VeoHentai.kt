@@ -10,7 +10,6 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import keiyoushi.network.get
 import keiyoushi.utils.firstInstanceOrNull
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -78,10 +77,9 @@ class VeoHentai : AnimeHttpSource() {
             }
         }
         filters.firstInstanceOrNull<GenreFilter>()?.let { f ->
-            val slugs = f.state
-                .filter { it.state }
-                .mapNotNull { GENRE_SLUGS[it.name] }
-            if (slugs.isNotEmpty()) params += "generos=" + slugs.joinToString(",")
+            if (f.state > 0) {
+                GENRE_SLUGS[f.values[f.state]]?.let { params += "generos=$it" }
+            }
         }
         if (page > 1) params += "page=$page"
 
@@ -170,15 +168,15 @@ class VeoHentai : AnimeHttpSource() {
     override fun seasonListParse(response: Response): List<SAnime> =
         throw UnsupportedOperationException("Seasons not supported")
 
-    // ---------------- Hosters (lib 16) ----------------
-    override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
-        val episodeDoc = client.get(baseUrl + episode.url).asJsoup()
+    // ---------------- Hosters (lib 16 — API request/parse) ----------------
+    override fun hosterListParse(response: Response): List<Hoster> {
+        val episodeDoc = response.asJsoup()
         val iframeUrl = episodeDoc.selectFirst("div.episode-player iframe")
             ?.let { it.absUrl("src").ifBlank { it.attr("src") } }
             ?.takeIf { it.isNotBlank() }
             ?: return emptyList()
 
-        val playerDoc = client.get(iframeUrl, playerHeaders).asJsoup()
+        val playerDoc = client.newCall(GET(iframeUrl, playerHeaders)).execute().use { it.asJsoup() }
 
         return playerDoc.select(".servers ul li[data-id], li[data-id]").mapNotNull { li ->
             val dataId = li.attr("data-id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
@@ -194,18 +192,12 @@ class VeoHentai : AnimeHttpSource() {
             if (!rawUrl.startsWith("http")) return@mapNotNull null
 
             val directUrl = "$rawUrl?md5=$md5&expires=$expires"
-            val subUrl = dataId.parseQueryParam("s")
-                ?.takeIf { it.isNotEmpty() }
-                ?.let { decodeBase64Safe(it) }
 
             val videos = listOf(
                 Video(
                     videoUrl = directUrl,
                     videoTitle = "$serverName [MP4]",
                     headers = cdnHeaders,
-                    subtitleTracks = subUrl?.let {
-                        listOf(Video.Subtitle(url = it, lang = "es"))
-                    } ?: emptyList(),
                 ),
             )
             Hoster(
@@ -262,9 +254,9 @@ class VeoHentai : AnimeHttpSource() {
 
     class StudioFilter : AnimeFilter.Text("Estudio (slug)")
 
-    class GenreFilter : AnimeFilter.Group<AnimeFilter.CheckBox>(
-        "Géneros",
-        GENRE_SLUGS.keys.map { AnimeFilter.CheckBox(it) },
+    class GenreFilter : AnimeFilter.Select<String>(
+        "Género",
+        arrayOf("Cualquiera") + GENRE_SLUGS.keys.toTypedArray(),
     )
 
     override fun getFilterList() = AnimeFilterList(
