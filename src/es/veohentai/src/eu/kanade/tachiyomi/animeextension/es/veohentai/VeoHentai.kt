@@ -29,8 +29,16 @@ class VeoHentai : AnimeHttpSource() {
 
     private val playerBase = "https://hentaiplayer.com"
 
+    // Cabeceras separadas a nivel de clase (Regla: Separate custom headers)
+    // Incluye barra final en Referer (Regla: Referer header trailing slash)
+    // Sin User-Agent hardcodeado (Regla: Do not hardcode User-Agent)
     private val playerHeaders: Headers = headers.newBuilder()
         .add("Referer", "$baseUrl/")
+        .add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")
+        .add("Accept-Language", "es-ES,es;q=0.9,en;q=0.8")
+        .add("Sec-Fetch-Dest", "iframe")
+        .add("Sec-Fetch-Mode", "navigate")
+        .add("Sec-Fetch-Site", "cross-site")
         .build()
 
     // Regex cacheadas
@@ -232,14 +240,25 @@ class VeoHentai : AnimeHttpSource() {
             }
         } catch (_: Exception) {}
 
-        // 2) Obtener el token de player-core-v2.php y parsear la URL del JS
         try {
-            val playerHtml = client.get(playerPhpUrl, playerHeaders, ensureSuccess = false)
-                .use { it.body?.string() ?: "" }
+            val reqBuilder = playerHeaders.newBuilder()
+            if (cookies.isNotEmpty()) reqBuilder.set("Cookie", cookies)
+            
+            val playerResp = client.get(playerPhpUrl, reqBuilder.build(), ensureSuccess = false)
+            val newCookies = playerResp.headers("Set-Cookie").joinToString("; ") { it.substringBefore(";") }
+            if (newCookies.isNotEmpty()) {
+                cookies = newCookies
+            }
+            
+            val playerHtml = playerResp.use { it.body?.string() ?: "" }
             val token = playerCoreTokenRegex.find(playerHtml)?.groupValues?.get(1)
+            
             if (token != null) {
                 val coreUrl = "$playerBase/player-core-v2.php?t=$token&_=${System.currentTimeMillis() / 1000}"
-                val coreJs = client.get(coreUrl, playerHeaders, ensureSuccess = false)
+                val coreReqBuilder = playerHeaders.newBuilder()
+                if (cookies.isNotEmpty()) coreReqBuilder.set("Cookie", cookies)
+                
+                val coreJs = client.get(coreUrl, coreReqBuilder.build(), ensureSuccess = false)
                     .use { it.body?.string() ?: "" }
 
                 val candidates = mutableListOf<String>()
@@ -255,7 +274,7 @@ class VeoHentai : AnimeHttpSource() {
             }
         } catch (_: Exception) {}
 
-        // 3) Fallback al base64 con variantes
+        // Fallback al base64 con variantes
         val vidParam = dataId.parseQueryParam("vid") ?: return null
         val decoded = decodeBase64Safe(vidParam) ?: return null
         val parts = decoded.split("|")
@@ -284,17 +303,30 @@ class VeoHentai : AnimeHttpSource() {
         return candidates.firstOrNull()
     }
 
+    // Validación estricta por Content-Type para evitar que páginas HTML (Cloudflare "Verificando...") 
+    // sean enviadas a mpv. (Regla: No comprobar Cloudflare manualmente en métodos parse).
     private suspend fun testVideoUrl(url: String, refererUrl: String, cookies: String): Boolean {
         return try {
             val hb = buildHeadersForUrl(url, refererUrl).newBuilder()
                 .set("Range", "bytes=0-1")
-                .set("Accept", "*/*")
+                .set("Accept", "video/webm,video/ogg,video/*;q=0.9,application/ogg;q=0.7,audio/*;q=0.6,*/*;q=0.5")
             if (cookies.isNotEmpty()) hb.set("Cookie", cookies)
+            
             val resp = client.get(url, hb.build(), ensureSuccess = false)
             val code = resp.code
-            resp.close()
-            code in 200..299 || code == 206
-        } catch (_: Exception) { false }
+            val contentType = resp.header("Content-Type")?.lowercase() ?: ""
+            resp.close() // Cierre explícito y temprano para eficiencia de memoria
+            
+            val isHtml = contentType.contains("text/html")
+            val isValidMedia = contentType.contains("video/") || 
+                               contentType.contains("mpegurl") || 
+                               contentType.contains("octet-stream") || 
+                               contentType.contains("text/plain")
+            
+            (code in 200..299 || code == 206) && isValidMedia && !isHtml
+        } catch (_: Exception) { 
+            false 
+        }
     }
 
     private fun buildHeadersForUrl(videoUrl: String, iframeUrl: String): Headers {
@@ -307,6 +339,11 @@ class VeoHentai : AnimeHttpSource() {
         return headers.newBuilder()
             .add("Referer", referer)
             .add("Origin", referer.trimEnd('/'))
+            .add("Accept", "video/webm,video/ogg,video/*;q=0.9,application/ogg;q=0.7,audio/*;q=0.6,*/*;q=0.5")
+            .add("Accept-Language", "es-ES,es;q=0.9,en;q=0.8")
+            .add("Sec-Fetch-Dest", "video")
+            .add("Sec-Fetch-Mode", "no-cors")
+            .add("Sec-Fetch-Site", "cross-site")
             .build()
     }
 
