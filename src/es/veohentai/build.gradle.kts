@@ -5,7 +5,7 @@ plugins {
 yuzono {
     name = "VeoHentai"
     className = "VeoHentai"
-    versionCode = 1
+    versionCode = 2
     contentWarning = ContentWarning.NSFW
-    libVersion = "14"
+    libVersion = "16"
 }
