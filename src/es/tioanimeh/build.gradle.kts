@@ -5,9 +5,9 @@ plugins {
 yuzono {
     name = "TioanimeH"
     className = "TioanimeHFactory"
-    versionCode = 39
+    versionCode = 40
     contentWarning = ContentWarning.MIXED
-    libVersion = "14"
+    libVersion = "16"
 }
 
 dependencies {
