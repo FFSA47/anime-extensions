@@ -45,30 +45,25 @@ open class TioanimeH(override val name: String, override val baseUrl: String) :
             "MixDrop",
         )
 
-        
         private val QUALITY_REGEX = Regex("""(\d+)p""")
     }
 
-    
     override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/directorio?p=$page", headers)
 
-        override fun popularAnimeParse(response: Response): AnimesPage {
+    override fun popularAnimeParse(response: Response): AnimesPage {
         val document = response.asJsoup()
         val elements = document.select("ul.animes.list-unstyled.row li.col-6.col-sm-4.col-md-3.col-xl-2")
         val hasNextPage = document.selectFirst(".pagination .active ~ li:not(.disabled)") != null
         
         val animeList = elements.mapNotNull { element ->
-            val title = element.select("article a h3").text()
-            if (title.isBlank()) return@mapNotNull null
+            val animeTitle = element.select("article a h3").text()
+            if (animeTitle.isBlank()) return@mapNotNull null
             
             SAnime.create().apply {
-                
                 setUrlWithoutDomain(element.select("article a").attr("abs:href"))
-                this.title = title
+                title = animeTitle
                 thumbnail_url = element.select("article a div figure img").attr("abs:src")
             }
-        }
-        return AnimesPage(animeList, hasNextPage)
         }
         return AnimesPage(animeList, hasNextPage)
     }
@@ -83,13 +78,12 @@ open class TioanimeH(override val name: String, override val baseUrl: String) :
         }
         
         val epNumList = episodesData.split(",")
-        val epSlug = epInfoScript.substringAfter("anime_info = [").substringBefore("];").replace("\"", "").split(",")[1]
+        val epSlug = epInfoScript.substringAfter("anime_info = [").substringBefore("];").replace("\"", "").split(",").getOrNull(1) ?: ""
         
         return epNumList.map {
             SEpisode.create().apply {
                 name = "Episodio $it"
                 url = "/ver/$epSlug-$it"
-                
                 episode_number = it.toFloatOrNull() ?: 0f
             }
         }
@@ -97,7 +91,6 @@ open class TioanimeH(override val name: String, override val baseUrl: String) :
 
     override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
 
-    /*--------------------------------Video extractors------------------------------------*/
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
     private val vidGuardExtractor by lazy { VidGuardExtractor(client) }
     private val okruExtractor by lazy { OkruExtractor(client) }
@@ -161,7 +154,6 @@ open class TioanimeH(override val name: String, override val baseUrl: String) :
         return this.sortedWith(
             compareBy(
                 { it.videoTitle.contains(quality) },
-                
                 { QUALITY_REGEX.find(it.videoTitle)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0 },
             ),
         ).reversed()
@@ -189,7 +181,6 @@ open class TioanimeH(override val name: String, override val baseUrl: String) :
         }
     }
 
-    
     private fun parseStatus(statusString: String): Int {
         val lowerStatus = statusString.lowercase()
         return when {
@@ -199,32 +190,30 @@ open class TioanimeH(override val name: String, override val baseUrl: String) :
         }
     }
 
-    
     override fun latestUpdatesRequest(page: Int): Request = GET(baseUrl, headers)
 
-        override fun latestUpdatesParse(response: Response): AnimesPage {
+    override fun latestUpdatesParse(response: Response): AnimesPage {
         val document = response.asJsoup()
         val elements = document.select(".episodes li")
         val hasNextPage = document.selectFirst(".pagination .active ~ li:not(.disabled)") != null
         
         val animeList = elements.mapNotNull { element ->
-            val title = element.select("article a h3").text()
-            if (title.isBlank()) return@mapNotNull null
+            val animeTitle = element.select("article a h3").text()
+            if (animeTitle.isBlank()) return@mapNotNull null
 
-            // ✅ CORRECCIÓN: Usar attr("abs:href")
             val href = element.select("article a").attr("abs:href")
             val slug = if (baseUrl.contains("hentai")) "/hentai/" else "/anime/"
             
             val realUrl = href.substringBeforeLast("-").replace("/ver/", slug)
             
             SAnime.create().apply {
-                this.title = title
+                title = animeTitle
                 thumbnail_url = element.select("article a div figure img").attr("abs:src")
                 setUrlWithoutDomain(realUrl)
             }
         }
         return AnimesPage(animeList, hasNextPage)
-        }
+    }
 
     override fun getFilterList(): AnimeFilterList = TioAnimeHFilters.getFilterList(TioAnimeHFilters.TioAnimeHFiltersData.ORIGEN.HENTAI)
 
@@ -236,7 +225,6 @@ open class TioanimeH(override val name: String, override val baseUrl: String) :
             entryValues = QUALITY_LIST
             setDefaultValue(PREF_QUALITY_DEFAULT)
             summary = "%s"
-            
             setOnPreferenceChangeListener { _, _ -> true }
         }.also(screen::addPreference)
 
