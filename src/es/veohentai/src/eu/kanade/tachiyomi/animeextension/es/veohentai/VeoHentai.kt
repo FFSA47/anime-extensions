@@ -214,16 +214,20 @@ class VeoHentai : AnimeHttpSource() {
      * 2) Fallback: construye la URL desde el base64 del parámetro `vid`.
      */
     override suspend fun resolveVideo(video: Video): Video? {
-        val data = video.internalData ?: return null
-        val parts = data.split("|", limit = 3)
-        val playerPhpUrl = parts.getOrNull(0) ?: return null
-        val dataId = parts.getOrNull(1) ?: return null
+    val data = video.internalData ?: return null
+    val parts = data.split("|", limit = 3)
+    val playerPhpUrl = parts.getOrNull(0) ?: return null
+    val dataId = parts.getOrNull(1) ?: return null
+    val serverName = parts.getOrNull(2) ?: video.videoTitle
 
-        val videoUrl = resolveVideoUrlSuspend(playerPhpUrl, dataId) ?: return null
-        video.videoUrl = videoUrl
-        video.initialized = true
-        video.headers = buildHeadersForUrl(videoUrl, playerPhpUrl)
-        return video
+    val videoUrl = resolveVideoUrlSuspend(playerPhpUrl, dataId) ?: return null
+
+    return Video(
+        videoUrl = videoUrl,
+        videoTitle = serverName,
+        headers = buildHeadersForUrl(videoUrl, playerPhpUrl),
+        initialized = true,
+    )
     }
 
     private suspend fun resolveVideoUrlSuspend(playerPhpUrl: String, dataId: String): String? {
