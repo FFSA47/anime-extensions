@@ -33,8 +33,9 @@ class VeoHentai : AnimeHttpSource() {
         .add("Referer", "$baseUrl/")
         .build()
 
-    // Regexes cacheadas (regla del repo)
+    // Regex cacheadas a nivel de clase (regla del repo)
     private val whitespaceRegex = Regex("\\s+")
+    private val trailingQueryRegex = Regex("\\?\\d+$")
     private val episodeSuffixRegex = Regex("-(episodio|episode)-\\d+.*$", RegexOption.IGNORE_CASE)
     private val episodeTitleRegex = Regex("\\s+(Episodio|Episode)\\s+\\d+.*$", RegexOption.IGNORE_CASE)
     private val episodeNumberRegex = Regex("(?:Episodio|Episode)\\s+(\\d+)", RegexOption.IGNORE_CASE)
@@ -47,17 +48,21 @@ class VeoHentai : AnimeHttpSource() {
     )
     private val videoAnyUrlRegex = Regex("""["'](https?://[^"']+\.(?:mp4|m3u8)[^"']*)["']""")
 
-    // ---------------- Populares / Recientes / Búsqueda ----------------
+    // ---------------- Populares ----------------
 
     override fun popularAnimeRequest(page: Int): Request =
         GET("$baseUrl/explorar/?orden=vistas${if (page > 1) "&page=$page" else ""}", headers)
 
     override fun popularAnimeParse(response: Response): AnimesPage = parseGrid(response)
 
+    // ---------------- Recientes ----------------
+
     override fun latestUpdatesRequest(page: Int): Request =
         GET("$baseUrl/explorar/${if (page > 1) "?page=$page" else ""}", headers)
 
     override fun latestUpdatesParse(response: Response): AnimesPage = parseGrid(response)
+
+    // ---------------- Búsqueda + filtros ----------------
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val base = if (query.isBlank()) "explorar" else "buscar"
@@ -175,8 +180,6 @@ class VeoHentai : AnimeHttpSource() {
             ?.takeIf { it.isNotBlank() }
             ?: return emptyList()
 
-        // Un único Hoster que representa el player page. La lista real de servidores
-        // y la URL de video se resuelven en videoListRequest / resolveVideo.
         return listOf(
             Hoster(
                 hosterUrl = iframeUrl,
@@ -190,9 +193,6 @@ class VeoHentai : AnimeHttpSource() {
         GET(hoster.internalData ?: hoster.hosterUrl, playerHeaders)
 
     override fun videoListParse(response: Response, hoster: Hoster): List<Video> {
-        // Solo parseo: se devuelven los videos como "no inicializados" con
-        // el player.php de cada servidor en internalData. La URL real se
-        // resuelve en resolveVideo (suspend) — así no hacemos red en parse.
         return response.asJsoup()
             .select(".servers ul li[data-id], li[data-id]")
             .mapNotNull { li ->
@@ -208,57 +208,95 @@ class VeoHentai : AnimeHttpSource() {
             }
     }
 
-    /**
-     * Resolución diferida (suspend, permitido por la guía).
-     * 1) Pide player.php y busca la URL directa en HTML/redirect.
-     * 2) Fallback: construye la URL desde el base64 del parámetro `vid`.
-     */
+    // ---------------- Resolución diferida (suspend) ----------------
+
     override suspend fun resolveVideo(video: Video): Video? {
-    val data = video.internalData ?: return null
-    val parts = data.split("|", limit = 3)
-    val playerPhpUrl = parts.getOrNull(0) ?: return null
-    val dataId = parts.getOrNull(1) ?: return null
-    val serverName = parts.getOrNull(2) ?: video.videoTitle
+        val data = video.internalData ?: return null
+        val parts = data.split("|", limit = 3)
+        val playerPhpUrl = parts.getOrNull(0) ?: return null
+        val dataId = parts.getOrNull(1) ?: return null
+        val serverName = parts.getOrNull(2) ?: video.videoTitle
 
-    val videoUrl = resolveVideoUrlSuspend(playerPhpUrl, dataId) ?: return null
+        val videoUrl = resolveVideoUrlSuspend(playerPhpUrl, dataId) ?: return null
+        val resolvedHeaders = buildHeadersForUrl(videoUrl, playerPhpUrl)
 
-    return Video(
-        videoUrl = videoUrl,
-        videoTitle = serverName,
-        headers = buildHeadersForUrl(videoUrl, playerPhpUrl),
-        initialized = true,
-    )
+        return Video(
+            videoUrl = videoUrl,
+            videoTitle = serverName,
+            headers = resolvedHeaders,
+            initialized = true,
+        )
     }
 
+    /**
+     * Estrategia:
+     *  1) Pedir player.php y guardar cookies de Set-Cookie (algunos CDN las exigen).
+     *  2) Intentar extraer URL directa del HTML de player.php.
+     *  3) Fallback: decodificar el `vid` en base64 y probar variantes de URL.
+     * Se valida cada candidata con un GET Range: bytes=0-1; la primera 200/206 gana.
+     */
     private suspend fun resolveVideoUrlSuspend(playerPhpUrl: String, dataId: String): String? {
+        // 1) Cookies de player.php
+        var cookies = ""
         try {
-            val response = client.get(playerPhpUrl, playerHeaders, ensureSuccess = false)
-            val finalUrl = response.request.url.toString()
-            if (finalUrl != playerPhpUrl &&
-                (finalUrl.contains(".mp4", true) || finalUrl.contains(".m3u8", true))
-            ) {
-                response.close()
-                return finalUrl
+            client.get(playerPhpUrl, playerHeaders, ensureSuccess = false).use { resp ->
+                cookies = resp.headers("Set-Cookie").joinToString("; ") { it.substringBefore(";") }
             }
-            val html = response.use { it.body?.string() ?: "" }
-            videoSrcVideoRegex.find(html)?.groupValues?.get(1)?.let { return it }
-            videoSrcSourceRegex.find(html)?.groupValues?.get(1)?.let { return it }
-            videoVarRegex.find(html)?.groupValues?.get(1)?.let { return it }
-            videoAnyUrlRegex.find(html)?.groupValues?.get(1)?.let { return it }
-        } catch (_: Exception) {
-            // fallback
-        }
+        } catch (_: Exception) {}
 
+        // 2) Intentar sacar la URL del HTML de player.php
+        try {
+            val html = client.get(playerPhpUrl, playerHeaders, ensureSuccess = false)
+                .use { it.body?.string() ?: "" }
+            val htmlCandidates = mutableListOf<String>()
+            for (regex in listOf(videoSrcVideoRegex, videoSrcSourceRegex, videoVarRegex, videoAnyUrlRegex)) {
+                regex.find(html)?.groupValues?.get(1)?.let { htmlCandidates.add(it) }
+            }
+            for (c in htmlCandidates) {
+                if (testVideoUrl(c, playerPhpUrl, cookies)) return c
+            }
+        } catch (_: Exception) {}
+
+        // 3) Fallback: base64 con variantes
         val vidParam = dataId.parseQueryParam("vid") ?: return null
         val decoded = decodeBase64Safe(vidParam) ?: return null
         val parts = decoded.split("|")
         if (parts.size < 3) return null
-        val rawUrl = parts[0]
-        val expires = parts[1]
-        val md5 = parts[2]
+        val rawUrl = parts[0].trim()
+        val expires = parts[1].trim()
+        val md5 = parts[2].trim()
         if (!rawUrl.startsWith("http")) return null
-        val sep = if (rawUrl.contains("?")) "&" else "?"
-        return "$rawUrl${sep}md5=$md5&expires=$expires"
+
+        val cleanUrl = rawUrl.replace(trailingQueryRegex, "")
+        val candidates = mutableListOf<String>()
+        fun add(u: String) {
+            val sep = if (u.contains("?")) "&" else "?"
+            candidates.add("$u${sep}md5=$md5&expires=$expires")
+        }
+        add(rawUrl)
+        if (cleanUrl != rawUrl) add(cleanUrl)
+        if (rawUrl.contains("+")) {
+            add(rawUrl.replace("+", "%2B"))
+            if (cleanUrl != rawUrl) add(cleanUrl.replace("+", "%2B"))
+        }
+
+        for (c in candidates.distinct()) {
+            if (testVideoUrl(c, playerPhpUrl, cookies)) return c
+        }
+        return candidates.firstOrNull()
+    }
+
+    private suspend fun testVideoUrl(url: String, refererUrl: String, cookies: String): Boolean {
+        return try {
+            val hb = buildHeadersForUrl(url, refererUrl).newBuilder()
+                .set("Range", "bytes=0-1")
+                .set("Accept", "*/*")
+            if (cookies.isNotEmpty()) hb.set("Cookie", cookies)
+            val resp = client.get(url, hb.build(), ensureSuccess = false)
+            val code = resp.code
+            resp.close()
+            code in 200..299 || code == 206
+        } catch (_: Exception) { false }
     }
 
     private fun buildHeadersForUrl(videoUrl: String, iframeUrl: String): Headers {
