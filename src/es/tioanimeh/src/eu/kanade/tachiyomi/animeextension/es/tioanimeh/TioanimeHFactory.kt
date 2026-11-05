@@ -19,7 +19,8 @@ class TioAnime : TioanimeH("TioAnime", "https://tioanime.com") {
 
         return when {
             query.isNotBlank() -> GET("$baseUrl/directorio?q=$query&p=$page", headers)
-            params.filter.isNotBlank() -> GET("$baseUrl/directorio${params.getQuery()}&p=$page")
+        
+            params.filter.isNotBlank() -> GET("$baseUrl/directorio${params.getQuery()}&p=$page", headers)
             else -> popularAnimeRequest(page)
         }
     }
