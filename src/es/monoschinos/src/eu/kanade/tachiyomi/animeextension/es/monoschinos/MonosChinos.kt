@@ -22,12 +22,13 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
+import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.annotation.Source
-import keiyoushi.network.post
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import okhttp3.FormBody
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
@@ -81,28 +82,28 @@ abstract class MonosChinos :
         private val NON_ALNUM = Regex("[^a-z0-9]")
     }
 
-    // ====================== Popular ======================
+    // ====================== POPULAR ======================
 
-    override fun popularAnimeRequest(page: Int): Request =
-        GET("$baseUrl/animes?p=$page", headers)
+    override fun popularAnimeRequest(page: Int) = GET("$baseUrl/animes?p=$page", headers)
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val document = response.asJsoup()
-        val elements = document.select("a[href*='/anime/']").filter { it.selectFirst("h3, h2, .title") != null }
-        val hasNextPage = document.selectFirst("a[rel='next']") != null
+
+        val elements = document.select("a[href*='/anime/']")
+            .filter { it.selectFirst("h3, h2, .title") != null }
+        val nextPage = document.selectFirst("a[rel='next']") != null
 
         val animeList = elements.mapNotNull { element ->
             SAnime.create().apply {
-                title = element.selectFirst("h3, h2, .title")?.text()?.trim() ?: return@mapNotNull null
+                title = element.selectFirst("h3, h2, .title")?.text() ?: return@mapNotNull null
                 thumbnail_url = element.selectFirst("img")?.getImageUrl()
-                setUrlWithoutDomain(element.absUrl("href"))
+                setUrlWithoutDomain(element.attr("abs:href"))
             }
         }
-
-        return AnimesPage(animeList, hasNextPage)
+        return AnimesPage(animeList, nextPage)
     }
 
-    // ====================== Latest ======================
+    // ====================== LATEST EPISODES ======================
 
     override fun latestUpdatesRequest(page: Int): Request {
         val url = if (page == 1) baseUrl else "$baseUrl?page=$page"
@@ -111,39 +112,57 @@ abstract class MonosChinos :
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val document = response.asJsoup()
+
         val episodeItems = document.select("section:has(h2:contains(Últimos capítulos)) a[href*='/ver/']")
 
         val animeList = episodeItems.mapNotNull { a ->
-            val episodeUrl = a.absUrl("href")
-            val episodeSlug = episodeUrl.substringAfter("/ver/").substringBefore("?")
+            val episodeUrl = a.attr("abs:href")
+            val episodeSlug = episodeUrl.toHttpUrlOrNull()?.pathSegments?.getOrNull(1)
+                ?: return@mapNotNull null
             val animeSlugBase = episodeSlug.replace(EPISODE_SLUG_REGEX, "")
             val animeUrl = "/anime/$animeSlugBase-sub-espanol"
 
-            val title = a.selectFirst("h3, h2, .title, .card-title")?.text()?.trim() ?: return@mapNotNull null
-            val episodeNumber = a.select("span, div").firstOrNull {
-                it.text().trim().startsWith("EP", ignoreCase = true)
-            }?.text()?.replace("EP", "", ignoreCase = true)?.trim() ?: ""
+            val title = a.selectFirst("h3, h2, .title, .card-title")?.text()
+                ?: return@mapNotNull null
+
+            val episodeNumber = a.select("span, div")
+                .firstOrNull { it.text().lowercase().startsWith("ep") }
+                ?.text()
+                ?.replace("EP", "", ignoreCase = true)
+                ?.trim()
+                ?: ""
 
             SAnime.create().apply {
-                this.title = if (episodeNumber.isNotBlank()) "$title - Episodio $episodeNumber" else title
+                this.title = if (episodeNumber.isNotBlank()) {
+                    "$title - Episodio $episodeNumber"
+                } else {
+                    title
+                }
                 setUrlWithoutDomain(animeUrl)
+
                 description = a.select("span, div").lastOrNull {
-                    it.text().trim().isNotEmpty() && !it.text().contains("EP", ignoreCase = true)
-                }?.text()?.trim()
+                    it.text().isNotEmpty() && !it.text().lowercase().contains("ep")
+                }?.text()
                 thumbnail_url = a.selectFirst("img")?.getImageUrl()
             }
         }
 
-        val hasNextPage = document.selectFirst("a[rel='next']") != null
-        return AnimesPage(animeList, hasNextPage)
+        val nextPage = document.selectFirst("a[rel='next']") != null
+        return AnimesPage(animeList, nextPage)
     }
 
-    // ====================== Search ======================
+    // ====================== SEARCH ======================
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val params = Filters.getSearchParameters(filters)
         return when {
-            query.isNotBlank() -> GET("$baseUrl/buscar?q=$query&p=$page", headers)
+            query.isNotBlank() -> {
+                val url = "$baseUrl/buscar".toHttpUrl().newBuilder()
+                    .addQueryParameter("q", query)
+                    .addQueryParameter("p", page.toString())
+                    .build()
+                GET(url, headers)
+            }
             params.filter.isNotBlank() -> GET("$baseUrl/animes${params.getQuery()}&p=$page", headers)
             else -> popularAnimeRequest(page)
         }
@@ -151,39 +170,42 @@ abstract class MonosChinos :
 
     override fun searchAnimeParse(response: Response) = popularAnimeParse(response)
 
-    // ====================== Details ======================
+    // ====================== DETAIL ======================
 
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.asJsoup()
         return SAnime.create().apply {
-            title = document.selectFirst("h1")?.text()?.trim() ?: ""
+            title = document.selectFirst("h1")?.text() ?: ""
+
             thumbnail_url = document.select("img").firstOrNull { img ->
                 val src = img.attr("abs:src").lowercase()
                 src.contains("portada") || src.contains("poster")
             }?.getImageUrl() ?: document.selectFirst("img:not([src*='logo'])")?.getImageUrl()
 
-            description = document.selectFirst("h3:contains(Sobre la serie)")?.nextElementSibling()?.text()?.trim()
-                ?: document.selectFirst("p:contains(Sinopsis completa)")?.nextElementSibling()?.text()?.trim()
-                ?: document.select("p").firstOrNull { it.text().length > 50 }?.text()?.trim()
+            description = document.selectFirst("h3:contains(Sobre la serie)")?.nextElementSibling()?.text()
+                ?: document.selectFirst("p:contains(Sinopsis completa)")?.nextElementSibling()?.text()
+                ?: document.select("p").firstOrNull { it.text().length > 50 }?.text()
 
             genre = document.select("a[href*='/genero/']").joinToString { it.text() }
 
-            val statusText = document.selectFirst("span:contains(Estado)")?.nextElementSibling()?.text()?.trim()
-                ?: document.selectFirst("h3:contains(Estado)")?.nextElementSibling()?.text()?.trim()
-                ?: document.select("span, div").firstOrNull {
-                    it.text().trim() in listOf("Estreno", "En emisión", "Finalizado")
-                }?.text()?.trim()
-                ?: "Desconocido"
+            val statusText = (
+                document.selectFirst("span:contains(Estado)")?.nextElementSibling()?.text()
+                    ?: document.selectFirst("h3:contains(Estado)")?.nextElementSibling()?.text()
+                    ?: document.select("span, div").firstOrNull {
+                        it.text() in listOf("Estreno", "En emisión", "Finalizado")
+                    }?.text()
+                    ?: "Desconocido"
+                ).lowercase()
 
             status = when {
-                statusText.contains("Estreno", ignoreCase = true) || statusText.contains("En emisión", ignoreCase = true) -> SAnime.ONGOING
-                statusText.contains("Finalizado", ignoreCase = true) -> SAnime.COMPLETED
+                statusText.contains("estreno") || statusText.contains("en emisión") -> SAnime.ONGOING
+                statusText.contains("finalizado") -> SAnime.COMPLETED
                 else -> SAnime.UNKNOWN
             }
         }
     }
 
-    // ====================== Episodes ======================
+    // ====================== EPISODES ======================
 
     override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
 
@@ -192,7 +214,7 @@ abstract class MonosChinos :
         val referer = document.location()
 
         val ajaxUrl = document.selectFirst("section.caplist")?.attr("data-ajax")?.let {
-            if (it.startsWith("http")) it else "$baseUrl$it"
+            if (it.startsWith("http")) it else baseUrl + it
         } ?: return emptyList()
 
         val csrfToken = document.selectFirst("meta[name='csrf-token']")?.attr("content") ?: ""
@@ -204,7 +226,6 @@ abstract class MonosChinos :
                 val animeSlug = referer.substringAfter("/anime/").substringBefore("?").substringBefore("#")
                 animeSlug.replace(SUB_ES_REGEX, "")
             }
-
         if (episodeSlug.isBlank()) return emptyList()
 
         val episodes = mutableListOf<SEpisode>()
@@ -230,8 +251,16 @@ abstract class MonosChinos :
                 .set("Accept", "application/json, text/javascript, */*; q=0.01")
                 .build()
 
+            val request = Request.Builder()
+                .url(paginatedUrl)
+                .post(formBody)
+                .headers(requestHeaders)
+                .build()
+
+            // NOTE: lib 16 no expone variante suspend para el listado de episodios vía AJAX.
+            // Se mantiene la llamada bloqueante pero envuelta en `use {}` para cerrar el body.
             val json = try {
-                client.post(paginatedUrl, formBody, requestHeaders).parseAs<EpisodesDto>()
+                client.newCall(request).execute().use { it.parseAs<EpisodesDto>() }
             } catch (_: Exception) {
                 break
             }
@@ -241,6 +270,7 @@ abstract class MonosChinos :
                 if (numStr.isBlank()) continue
 
                 val episodeNumber = numStr.toFloatOrNull() ?: continue
+
                 val urlNumber = if (episodeNumber % 1 == 0f) {
                     episodeNumber.toInt().toString()
                 } else {
@@ -261,6 +291,7 @@ abstract class MonosChinos :
             }
 
             val perpage = json.perpage ?: 0
+
             if (perpage == 0 || json.eps.size < perpage) {
                 hasMore = false
             } else {
@@ -271,16 +302,14 @@ abstract class MonosChinos :
         return episodes.sortedByDescending { it.episode_number }
     }
 
-    // ====================== Hosters/Videos ======================
+    // ====================== HOSTERS/VIDEOS ======================
 
     override fun hosterListParse(response: Response): List<Hoster> {
         val document = response.asJsoup()
         val serverButtons = document.select("button.play-video[data-player]")
-
         return serverButtons.mapNotNull { button ->
             val encoded = button.attr("data-player")
             if (encoded.isBlank()) return@mapNotNull null
-
             val decodedUrl = try {
                 String(Base64.decode(encoded, Base64.DEFAULT))
             } catch (e: Exception) {
@@ -288,7 +317,7 @@ abstract class MonosChinos :
             } ?: return@mapNotNull null
 
             val serverName = button.attr("data-server").takeIf { it.isNotBlank() }
-                ?: button.text().trim().takeIf { it.isNotBlank() }
+                ?: button.text().takeIf { it.isNotBlank() }
                 ?: ""
 
             Hoster(
@@ -299,15 +328,18 @@ abstract class MonosChinos :
         }
     }
 
+    // El app aplica `sortVideos()` después; no lo llamamos también aquí.
     override suspend fun getVideoList(hoster: Hoster): List<Video> =
-        serverVideoResolver(hoster.hosterUrl, hoster.internalData).sortVideos()
+        serverVideoResolver(hoster.hosterUrl, hoster.internalData)
 
     override fun List<Hoster>.sortHosters(): List<Hoster> {
         val server = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)!!
-        return sortedWith(compareByDescending<Hoster> { matchesPref(it.hosterName, server) })
+        return sortedWith(
+            compareByDescending<Hoster> { matchesPref(it.hosterName, server) },
+        )
     }
 
-    // ====================== Extractors ======================
+    // ====================== EXTRACTORS ======================
 
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
     private val streamwishExtractor by lazy { StreamWishExtractor(client, headers) }
@@ -413,13 +445,12 @@ abstract class MonosChinos :
         emptyList()
     }
 
-    // ====================== Sorting ======================
+    // ====================== ORDER ======================
 
     override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
         val server = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)!!
-
-        return sortedWith(
+        return this.sortedWith(
             compareBy<Video>(
                 { matchesPref(it.videoTitle, server) },
                 { it.videoTitle.contains(quality) },
@@ -428,12 +459,11 @@ abstract class MonosChinos :
         )
     }
 
-    // ====================== Utilities ======================
+    // ====================== ASSISTANTS ======================
 
     private fun matchesPref(text: String, pref: String): Boolean {
         val t = text.lowercase().replace(NON_ALNUM, "")
         if (t.isEmpty()) return false
-
         val keys: List<String> = PREF_SERVER_ALIASES[pref] ?: listOf(pref.lowercase())
         return keys.any { key ->
             val k = key.lowercase().replace(NON_ALNUM, "")
@@ -453,11 +483,11 @@ abstract class MonosChinos :
         }
     }
 
-    // ====================== Filters ======================
+    // ====================== FILTERS ======================
 
     override fun getFilterList(): AnimeFilterList = Filters.FILTER_LIST
 
-    // ====================== Preferences ======================
+    // ====================== PREFERENCES ======================
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         ListPreference(screen.context).apply {
