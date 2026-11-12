@@ -23,8 +23,10 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.annotation.Source
+import keiyoushi.network.get
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import okhttp3.FormBody
@@ -117,6 +119,7 @@ abstract class MonosChinos :
 
         val animeList = episodeItems.mapNotNull { a ->
             val episodeUrl = a.attr("abs:href")
+            // Use HttpUrl.pathSegments instead of substringAfter("/ver/")
             val episodeSlug = episodeUrl.toHttpUrlOrNull()?.pathSegments?.getOrNull(1)
                 ?: return@mapNotNull null
             val animeSlugBase = episodeSlug.replace(EPISODE_SLUG_REGEX, "")
@@ -125,10 +128,11 @@ abstract class MonosChinos :
             val title = a.selectFirst("h3, h2, .title, .card-title")?.text()
                 ?: return@mapNotNull null
 
+            // Jsoup already trims `.text()`; use `lowercase()` instead of `ignoreCase = true`.
             val episodeNumber = a.select("span, div")
                 .firstOrNull { it.text().lowercase().startsWith("ep") }
                 ?.text()
-                ?.replace("EP", "", ignoreCase = true)
+                ?.substringAfter("ep", "")
                 ?.trim()
                 ?: ""
 
@@ -163,7 +167,13 @@ abstract class MonosChinos :
                     .build()
                 GET(url, headers)
             }
-            params.filter.isNotBlank() -> GET("$baseUrl/animes${params.getQuery()}&p=$page", headers)
+            params.filter.isNotBlank() -> {
+                // Build with HttpUrl.Builder so `genero[]=…` gets encoded correctly.
+                val builder = "$baseUrl/animes".toHttpUrl().newBuilder()
+                    .addQueryParameter("p", page.toString())
+                Filters.applyTo(builder, filters)
+                GET(builder.build(), headers)
+            }
             else -> popularAnimeRequest(page)
         }
     }
@@ -175,7 +185,9 @@ abstract class MonosChinos :
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.asJsoup()
         return SAnime.create().apply {
-            title = document.selectFirst("h1")?.text() ?: ""
+            // Fail loudly — don't write an empty title into the user's library.
+            title = document.selectFirst("h1")?.text()
+                ?: throw Exception("MonosChinos: missing <h1> title on ${document.location()}")
 
             thumbnail_url = document.select("img").firstOrNull { img ->
                 val src = img.attr("abs:src").lowercase()
@@ -209,9 +221,10 @@ abstract class MonosChinos :
 
     override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
 
-    override fun episodeListParse(response: Response): List<SEpisode> {
-        val document = response.asJsoup()
-        val referer = document.location()
+    // Suspend override so AJAX pagination can use suspend network calls (no `execute()`).
+    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
+        val animeUrl = "$baseUrl${anime.url}"
+        val document = client.get(animeUrl, headers).asJsoup()
 
         val ajaxUrl = document.selectFirst("section.caplist")?.attr("data-ajax")?.let {
             if (it.startsWith("http")) it else baseUrl + it
@@ -219,13 +232,15 @@ abstract class MonosChinos :
 
         val csrfToken = document.selectFirst("meta[name='csrf-token']")?.attr("content") ?: ""
 
+        // Use HttpUrl.pathSegments instead of substringAfter("/anime/")
+        val animeSlug = animeUrl.toHttpUrlOrNull()?.pathSegments?.getOrNull(1)
+            ?: anime.url.substringAfter("/anime/").substringBefore("?").substringBefore("#")
+
         val episodeSlug = document.selectFirst("a[href^='/ver/']")?.attr("href")
             ?.substringAfter("/ver/")
             ?.substringBefore("-episodio-")
-            ?: run {
-                val animeSlug = referer.substringAfter("/anime/").substringBefore("?").substringBefore("#")
-                animeSlug.replace(SUB_ES_REGEX, "")
-            }
+            ?: animeSlug.replace(SUB_ES_REGEX, "")
+
         if (episodeSlug.isBlank()) return emptyList()
 
         val episodes = mutableListOf<SEpisode>()
@@ -246,21 +261,19 @@ abstract class MonosChinos :
                 .build()
 
             val requestHeaders = headers.newBuilder()
-                .set("Referer", referer)
+                .set("Referer", animeUrl)
                 .set("X-Requested-With", "XMLHttpRequest")
                 .set("Accept", "application/json, text/javascript, */*; q=0.01")
                 .build()
 
-            val request = Request.Builder()
-                .url(paginatedUrl)
-                .post(formBody)
-                .headers(requestHeaders)
-                .build()
-
-            // NOTE: lib 16 no expone variante suspend para el listado de episodios vía AJAX.
-            // Se mantiene la llamada bloqueante pero envuelta en `use {}` para cerrar el body.
+            // Suspend call via awaitSuccess() — no `execute()` inside the parser.
             val json = try {
-                client.newCall(request).execute().use { it.parseAs<EpisodesDto>() }
+                val request = Request.Builder()
+                    .url(paginatedUrl)
+                    .post(formBody)
+                    .headers(requestHeaders)
+                    .build()
+                client.newCall(request).awaitSuccess().parseAs<EpisodesDto>()
             } catch (_: Exception) {
                 break
             }
@@ -268,15 +281,12 @@ abstract class MonosChinos :
             for (obj in json.eps) {
                 val numStr = obj.numStr
                 if (numStr.isBlank()) continue
-
                 val episodeNumber = numStr.toFloatOrNull() ?: continue
-
                 val urlNumber = if (episodeNumber % 1 == 0f) {
                     episodeNumber.toInt().toString()
                 } else {
                     numStr
                 }
-
                 episodes.add(
                     SEpisode.create().apply {
                         name = if (episodeNumber % 1 == 0f) {
@@ -291,7 +301,6 @@ abstract class MonosChinos :
             }
 
             val perpage = json.perpage ?: 0
-
             if (perpage == 0 || json.eps.size < perpage) {
                 hasMore = false
             } else {
@@ -328,7 +337,7 @@ abstract class MonosChinos :
         }
     }
 
-    // El app aplica `sortVideos()` después; no lo llamamos también aquí.
+    // The app applies sortVideos() afterwards; don't call it here too.
     override suspend fun getVideoList(hoster: Hoster): List<Video> =
         serverVideoResolver(hoster.hosterUrl, hoster.internalData)
 
