@@ -22,8 +22,9 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
+import keiyoushi.network.post
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import okhttp3.FormBody
@@ -32,14 +33,11 @@ import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
 
-class MonosChinos :
+@Source
+abstract class MonosChinos :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
 
-    override val name = "MonosChinos"
-    override val baseUrl = "https://monoschinos.st"
-    override val id = 6957694006954649296
-    override val lang = "es"
     override val supportsLatest = true
 
     private val preferences by getPreferencesLazy()
@@ -83,27 +81,28 @@ class MonosChinos :
         private val NON_ALNUM = Regex("[^a-z0-9]")
     }
 
-    // ====================== POPULAR ======================
+    // ====================== Popular ======================
 
-    override fun popularAnimeRequest(page: Int) = GET("$baseUrl/animes?p=$page", headers)
+    override fun popularAnimeRequest(page: Int): Request =
+        GET("$baseUrl/animes?p=$page", headers)
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val document = response.asJsoup()
-
         val elements = document.select("a[href*='/anime/']").filter { it.selectFirst("h3, h2, .title") != null }
-        val nextPage = document.selectFirst("a[rel='next']") != null
+        val hasNextPage = document.selectFirst("a[rel='next']") != null
 
         val animeList = elements.mapNotNull { element ->
             SAnime.create().apply {
                 title = element.selectFirst("h3, h2, .title")?.text()?.trim() ?: return@mapNotNull null
                 thumbnail_url = element.selectFirst("img")?.getImageUrl()
-                setUrlWithoutDomain(element.attr("abs:href"))
+                setUrlWithoutDomain(element.absUrl("href"))
             }
         }
-        return AnimesPage(animeList, nextPage)
+
+        return AnimesPage(animeList, hasNextPage)
     }
 
-    // ====================== LATEST EPISODES ======================
+    // ====================== Latest ======================
 
     override fun latestUpdatesRequest(page: Int): Request {
         val url = if (page == 1) baseUrl else "$baseUrl?page=$page"
@@ -112,29 +111,22 @@ class MonosChinos :
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val document = response.asJsoup()
-
         val episodeItems = document.select("section:has(h2:contains(Últimos capítulos)) a[href*='/ver/']")
 
         val animeList = episodeItems.mapNotNull { a ->
-            val episodeUrl = a.attr("abs:href")
+            val episodeUrl = a.absUrl("href")
             val episodeSlug = episodeUrl.substringAfter("/ver/").substringBefore("?")
             val animeSlugBase = episodeSlug.replace(EPISODE_SLUG_REGEX, "")
             val animeUrl = "/anime/$animeSlugBase-sub-espanol"
 
             val title = a.selectFirst("h3, h2, .title, .card-title")?.text()?.trim() ?: return@mapNotNull null
-
             val episodeNumber = a.select("span, div").firstOrNull {
                 it.text().trim().startsWith("EP", ignoreCase = true)
             }?.text()?.replace("EP", "", ignoreCase = true)?.trim() ?: ""
 
             SAnime.create().apply {
-                this.title = if (episodeNumber.isNotBlank()) {
-                    "$title - Episodio $episodeNumber"
-                } else {
-                    title
-                }
+                this.title = if (episodeNumber.isNotBlank()) "$title - Episodio $episodeNumber" else title
                 setUrlWithoutDomain(animeUrl)
-
                 description = a.select("span, div").lastOrNull {
                     it.text().trim().isNotEmpty() && !it.text().contains("EP", ignoreCase = true)
                 }?.text()?.trim()
@@ -142,11 +134,11 @@ class MonosChinos :
             }
         }
 
-        val nextPage = document.selectFirst("a[rel='next']") != null
-        return AnimesPage(animeList, nextPage)
+        val hasNextPage = document.selectFirst("a[rel='next']") != null
+        return AnimesPage(animeList, hasNextPage)
     }
 
-    // ====================== SEARCH ======================
+    // ====================== Search ======================
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val params = Filters.getSearchParameters(filters)
@@ -159,13 +151,12 @@ class MonosChinos :
 
     override fun searchAnimeParse(response: Response) = popularAnimeParse(response)
 
-    // ====================== DETAIL ======================
+    // ====================== Details ======================
 
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.asJsoup()
         return SAnime.create().apply {
             title = document.selectFirst("h1")?.text()?.trim() ?: ""
-
             thumbnail_url = document.select("img").firstOrNull { img ->
                 val src = img.attr("abs:src").lowercase()
                 src.contains("portada") || src.contains("poster")
@@ -192,7 +183,7 @@ class MonosChinos :
         }
     }
 
-    // ====================== EPISODES ======================
+    // ====================== Episodes ======================
 
     override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
 
@@ -201,7 +192,7 @@ class MonosChinos :
         val referer = document.location()
 
         val ajaxUrl = document.selectFirst("section.caplist")?.attr("data-ajax")?.let {
-            if (it.startsWith("http")) it else baseUrl + it
+            if (it.startsWith("http")) it else "$baseUrl$it"
         } ?: return emptyList()
 
         val csrfToken = document.selectFirst("meta[name='csrf-token']")?.attr("content") ?: ""
@@ -213,6 +204,7 @@ class MonosChinos :
                 val animeSlug = referer.substringAfter("/anime/").substringBefore("?").substringBefore("#")
                 animeSlug.replace(SUB_ES_REGEX, "")
             }
+
         if (episodeSlug.isBlank()) return emptyList()
 
         val episodes = mutableListOf<SEpisode>()
@@ -238,24 +230,17 @@ class MonosChinos :
                 .set("Accept", "application/json, text/javascript, */*; q=0.01")
                 .build()
 
-            val request = Request.Builder()
-                .url(paginatedUrl)
-                .post(formBody)
-                .headers(requestHeaders)
-                .build()
-
             val json = try {
-                client.newCall(request).execute().parseAs<EpisodesDto>()
+                client.post(paginatedUrl, formBody, requestHeaders).parseAs<EpisodesDto>()
             } catch (_: Exception) {
                 break
             }
 
             for (obj in json.eps) {
-                val numStr = obj.num.toString()
+                val numStr = obj.numStr
                 if (numStr.isBlank()) continue
 
                 val episodeNumber = numStr.toFloatOrNull() ?: continue
-
                 val urlNumber = if (episodeNumber % 1 == 0f) {
                     episodeNumber.toInt().toString()
                 } else {
@@ -275,8 +260,7 @@ class MonosChinos :
                 )
             }
 
-            val perpage = json.perpage?.toInt() ?: 0
-
+            val perpage = json.perpage ?: 0
             if (perpage == 0 || json.eps.size < perpage) {
                 hasMore = false
             } else {
@@ -287,14 +271,16 @@ class MonosChinos :
         return episodes.sortedByDescending { it.episode_number }
     }
 
-    // ====================== HOSTERS/VIDEOS ======================
+    // ====================== Hosters/Videos ======================
 
     override fun hosterListParse(response: Response): List<Hoster> {
         val document = response.asJsoup()
         val serverButtons = document.select("button.play-video[data-player]")
+
         return serverButtons.mapNotNull { button ->
             val encoded = button.attr("data-player")
             if (encoded.isBlank()) return@mapNotNull null
+
             val decodedUrl = try {
                 String(Base64.decode(encoded, Base64.DEFAULT))
             } catch (e: Exception) {
@@ -313,16 +299,15 @@ class MonosChinos :
         }
     }
 
-    override suspend fun getVideoList(hoster: Hoster): List<Video> = serverVideoResolver(hoster.hosterUrl, hoster.internalData).sortVideos()
+    override suspend fun getVideoList(hoster: Hoster): List<Video> =
+        serverVideoResolver(hoster.hosterUrl, hoster.internalData).sortVideos()
 
     override fun List<Hoster>.sortHosters(): List<Hoster> {
         val server = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)!!
-        return sortedWith(
-            compareByDescending<Hoster> { matchesPref(it.hosterName, server) },
-        )
+        return sortedWith(compareByDescending<Hoster> { matchesPref(it.hosterName, server) })
     }
 
-    // ====================== EXTRACTORS ======================
+    // ====================== Extractors ======================
 
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
     private val streamwishExtractor by lazy { StreamWishExtractor(client, headers) }
@@ -428,12 +413,13 @@ class MonosChinos :
         emptyList()
     }
 
-    // ====================== ORDER ======================
+    // ====================== Sorting ======================
 
     override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
         val server = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)!!
-        return this.sortedWith(
+
+        return sortedWith(
             compareBy<Video>(
                 { matchesPref(it.videoTitle, server) },
                 { it.videoTitle.contains(quality) },
@@ -442,11 +428,12 @@ class MonosChinos :
         )
     }
 
-    // ====================== ASSISTANTS ======================
+    // ====================== Utilities ======================
 
     private fun matchesPref(text: String, pref: String): Boolean {
         val t = text.lowercase().replace(NON_ALNUM, "")
         if (t.isEmpty()) return false
+
         val keys: List<String> = PREF_SERVER_ALIASES[pref] ?: listOf(pref.lowercase())
         return keys.any { key ->
             val k = key.lowercase().replace(NON_ALNUM, "")
@@ -466,11 +453,11 @@ class MonosChinos :
         }
     }
 
-    // ====================== FILTERS ======================
+    // ====================== Filters ======================
 
     override fun getFilterList(): AnimeFilterList = Filters.FILTER_LIST
 
-    // ====================== PREFERENCES ======================
+    // ====================== Preferences ======================
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         ListPreference(screen.context).apply {
