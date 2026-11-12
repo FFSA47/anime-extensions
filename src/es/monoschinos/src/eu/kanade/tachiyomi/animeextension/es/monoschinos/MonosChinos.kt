@@ -217,100 +217,105 @@ abstract class MonosChinos :
         }
     }
 
-    // ====================== EPISODES ======================
+// ====================== EPISODES ======================
 
-    override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
+override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
 
-    // Suspend override so AJAX pagination can use suspend network calls (no `execute()`).
-    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
-        val animeUrl = "$baseUrl${anime.url}"
-        val document = client.get(animeUrl, headers).asJsoup()
+// Abstract in lib 16, but its default flow is replaced by the suspend getEpisodeList()
+// below. Throwing here keeps it consistent with how the repo handles unused abstract
+// parse methods (see CONTRIBUTING: seasons) and avoids `execute()` inside a parser.
+override fun episodeListParse(response: Response): List<SEpisode> =
+    throw UnsupportedOperationException("Use the suspend getEpisodeList() override")
 
-        val ajaxUrl = document.selectFirst("section.caplist")?.attr("data-ajax")?.let {
-            if (it.startsWith("http")) it else baseUrl + it
-        } ?: return emptyList()
+// Suspend override so AJAX pagination can use suspend network calls (no `execute()`).
+override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
+    val animeUrl = "$baseUrl${anime.url}"
+    val document = client.get(animeUrl, headers).asJsoup()
 
-        val csrfToken = document.selectFirst("meta[name='csrf-token']")?.attr("content") ?: ""
+    val ajaxUrl = document.selectFirst("section.caplist")?.attr("data-ajax")?.let {
+        if (it.startsWith("http")) it else baseUrl + it
+    } ?: return emptyList()
 
-        // Use HttpUrl.pathSegments instead of substringAfter("/anime/")
-        val animeSlug = animeUrl.toHttpUrlOrNull()?.pathSegments?.getOrNull(1)
-            ?: anime.url.substringAfter("/anime/").substringBefore("?").substringBefore("#")
+    val csrfToken = document.selectFirst("meta[name='csrf-token']")?.attr("content") ?: ""
 
-        val episodeSlug = document.selectFirst("a[href^='/ver/']")?.attr("href")
-            ?.substringAfter("/ver/")
-            ?.substringBefore("-episodio-")
-            ?: animeSlug.replace(SUB_ES_REGEX, "")
+    // Use HttpUrl.pathSegments instead of substringAfter("/anime/")
+    val animeSlug = animeUrl.toHttpUrlOrNull()?.pathSegments?.getOrNull(1)
+        ?: anime.url.substringAfter("/anime/").substringBefore("?").substringBefore("#")
 
-        if (episodeSlug.isBlank()) return emptyList()
+    val episodeSlug = document.selectFirst("a[href^='/ver/']")?.attr("href")
+        ?.substringAfter("/ver/")
+        ?.substringBefore("-episodio-")
+        ?: animeSlug.replace(SUB_ES_REGEX, "")
 
-        val episodes = mutableListOf<SEpisode>()
-        var currentPage = 1
-        var hasMore = true
-        val maxPages = 200
+    if (episodeSlug.isBlank()) return emptyList()
 
-        while (hasMore && currentPage <= maxPages) {
-            val paginatedUrl = if (currentPage == 1) {
-                ajaxUrl
-            } else {
-                val separator = if (ajaxUrl.contains("?")) "&" else "?"
-                "$ajaxUrl${separator}page=$currentPage"
-            }
+    val episodes = mutableListOf<SEpisode>()
+    var currentPage = 1
+    var hasMore = true
+    val maxPages = 200
 
-            val formBody = FormBody.Builder()
-                .add("_token", csrfToken)
-                .build()
-
-            val requestHeaders = headers.newBuilder()
-                .set("Referer", animeUrl)
-                .set("X-Requested-With", "XMLHttpRequest")
-                .set("Accept", "application/json, text/javascript, */*; q=0.01")
-                .build()
-
-            // Suspend call via awaitSuccess() — no `execute()` inside the parser.
-            val json = try {
-                val request = Request.Builder()
-                    .url(paginatedUrl)
-                    .post(formBody)
-                    .headers(requestHeaders)
-                    .build()
-                client.newCall(request).awaitSuccess().parseAs<EpisodesDto>()
-            } catch (_: Exception) {
-                break
-            }
-
-            for (obj in json.eps) {
-                val numStr = obj.numStr
-                if (numStr.isBlank()) continue
-                val episodeNumber = numStr.toFloatOrNull() ?: continue
-                val urlNumber = if (episodeNumber % 1 == 0f) {
-                    episodeNumber.toInt().toString()
-                } else {
-                    numStr
-                }
-                episodes.add(
-                    SEpisode.create().apply {
-                        name = if (episodeNumber % 1 == 0f) {
-                            "Episodio ${episodeNumber.toInt()}"
-                        } else {
-                            "Episodio $numStr"
-                        }
-                        episode_number = episodeNumber
-                        setUrlWithoutDomain("/ver/$episodeSlug-episodio-$urlNumber")
-                    },
-                )
-            }
-
-            val perpage = json.perpage ?: 0
-            if (perpage == 0 || json.eps.size < perpage) {
-                hasMore = false
-            } else {
-                currentPage++
-            }
+    while (hasMore && currentPage <= maxPages) {
+        val paginatedUrl = if (currentPage == 1) {
+            ajaxUrl
+        } else {
+            val separator = if (ajaxUrl.contains("?")) "&" else "?"
+            "$ajaxUrl${separator}page=$currentPage"
         }
 
-        return episodes.sortedByDescending { it.episode_number }
+        val formBody = FormBody.Builder()
+            .add("_token", csrfToken)
+            .build()
+
+        val requestHeaders = headers.newBuilder()
+            .set("Referer", animeUrl)
+            .set("X-Requested-With", "XMLHttpRequest")
+            .set("Accept", "application/json, text/javascript, */*; q=0.01")
+            .build()
+
+        // Suspend call via awaitSuccess() — no `execute()` inside the parser.
+        val json = try {
+            val request = Request.Builder()
+                .url(paginatedUrl)
+                .post(formBody)
+                .headers(requestHeaders)
+                .build()
+            client.newCall(request).awaitSuccess().parseAs<EpisodesDto>()
+        } catch (_: Exception) {
+            break
+        }
+
+        for (obj in json.eps) {
+            val numStr = obj.numStr
+            if (numStr.isBlank()) continue
+            val episodeNumber = numStr.toFloatOrNull() ?: continue
+            val urlNumber = if (episodeNumber % 1 == 0f) {
+                episodeNumber.toInt().toString()
+            } else {
+                numStr
+            }
+            episodes.add(
+                SEpisode.create().apply {
+                    name = if (episodeNumber % 1 == 0f) {
+                        "Episodio ${episodeNumber.toInt()}"
+                    } else {
+                        "Episodio $numStr"
+                    }
+                    episode_number = episodeNumber
+                    setUrlWithoutDomain("/ver/$episodeSlug-episodio-$urlNumber")
+                },
+            )
+        }
+
+        val perpage = json.perpage ?: 0
+        if (perpage == 0 || json.eps.size < perpage) {
+            hasMore = false
+        } else {
+            currentPage++
+        }
     }
 
+    return episodes.sortedByDescending { it.episode_number }
+}
     // ====================== HOSTERS/VIDEOS ======================
 
     override fun hosterListParse(response: Response): List<Hoster> {
