@@ -2,15 +2,17 @@ package eu.kanade.tachiyomi.animeextension.es.monoschinos
 
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import keiyoushi.utils.firstInstance
 import java.util.Calendar
 
 object Filters {
+
     open class QueryPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
         AnimeFilter.Select<String>(
             displayName,
             vals.map { it.first }.toTypedArray(),
         ) {
-        fun toQueryPart(name: String) = vals[state].second.takeIf { it.isNotEmpty() }?.let { "&$name=${vals[state].second}" } ?: run { "" }
+        fun toQueryPart(name: String) = vals[state].second.takeIf { it.isNotEmpty() }?.let { "&$name=${vals[state].second}" } ?: ""
     }
 
     open class CheckBoxFilterList(name: String, values: List<CheckBox>) : AnimeFilter.Group<AnimeFilter.CheckBox>(name, values)
@@ -20,7 +22,7 @@ object Filters {
     private inline fun <reified R> AnimeFilterList.parseCheckbox(
         options: Array<Pair<String, String>>,
         name: String,
-    ): String = (this.getFirst<R>() as CheckBoxFilterList).state
+    ): String = (this.firstInstance<R>() as CheckBoxFilterList).state
         .mapNotNull { checkbox ->
             if (checkbox.state) {
                 options.find { it.first == checkbox.name }!!.second
@@ -35,11 +37,10 @@ object Filters {
             }
         }
 
-    private inline fun <reified R> AnimeFilterList.asQueryPart(name: String): String = (this.getFirst<R>() as QueryPartFilter).toQueryPart(name)
+    private inline fun <reified R> AnimeFilterList.asQueryPart(name: String): String =
+        (this.firstInstance<R>() as QueryPartFilter).toQueryPart(name)
 
-    private inline fun <reified R> AnimeFilterList.getFirst(): R = this.filterIsInstance<R>().first()
-
-    private fun String.changePrefix() = this.takeIf { it.startsWith("&") }?.let { this.replaceFirst("&", "?") } ?: run { this }
+    private fun String.changePrefix() = this.takeIf { it.startsWith("&") }?.let { this.replaceFirst("&", "?") } ?: this
 
     data class FilterSearchParams(val filter: String = "") {
         fun getQuery() = filter.changePrefix()
@@ -66,13 +67,9 @@ object Filters {
     )
 
     class GenresFilter : CheckBoxFilterList("Género", DoramasytFiltersData.GENRES.map { CheckBoxVal(it.first, false) })
-
     class YearsFilter : CheckBoxFilterList("Año", DoramasytFiltersData.YEARS.map { CheckBoxVal(it.first, false) })
-
     class TypesFilter : CheckBoxFilterList("Tipo", DoramasytFiltersData.TYPES.map { CheckBoxVal(it.first, false) })
-
     class StatusFilter : QueryPartFilter("Estado", DoramasytFiltersData.STATUS)
-
     class SortFilter : QueryPartFilter("Orden", DoramasytFiltersData.SORT)
 
     private object DoramasytFiltersData {
