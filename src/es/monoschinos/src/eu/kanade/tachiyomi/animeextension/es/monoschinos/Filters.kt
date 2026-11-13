@@ -26,11 +26,9 @@ object Filters {
         }
     }
 
-    open class CheckBoxFilterList(name: String, values: List<CheckBox>) :
-        AnimeFilter.Group<AnimeFilter.CheckBox>(name, values)
+    open class CheckBoxFilterList(name: String, values: List<CheckBox>) : AnimeFilter.Group<AnimeFilter.CheckBox>(name, values)
 
-    private class CheckBoxVal(name: String, state: Boolean = false) :
-        AnimeFilter.CheckBox(name, state)
+    private class CheckBoxVal(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
 
     internal fun getSearchParameters(filters: AnimeFilterList): FilterSearchParams {
         if (filters.isEmpty()) return FilterSearchParams()
@@ -61,8 +59,7 @@ object Filters {
             .mapNotNull { checkbox -> FiltersData.GENRES.find { it.first == checkbox.name }?.second }
     }
 
-    private fun String.changePrefix() =
-        this.takeIf { it.startsWith("&") }?.let { this.replaceFirst("&", "?") } ?: ""
+    private fun String.changePrefix() = this.takeIf { it.startsWith("&") }?.let { this.replaceFirst("&", "?") } ?: ""
 
     class FilterSearchParams(val filter: String = "") {
         fun getQuery() = filter.changePrefix()
