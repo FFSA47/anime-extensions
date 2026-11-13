@@ -70,7 +70,6 @@ abstract class MonosChinos :
             "Voe" to listOf("voe", "tubelessceliolymph", "simpulumlamerop", "urochsunloath", "nathanfromsubject", "yip.", "metagnathtuggers", "donaldlineelse"),
             "StreamWish" to listOf("streamwish", "wish", "swdyu", "iplayerhls", "strwish", "wishembed", "kswplayer", "swhoi", "multimovies", "uqloads", "neko-stream", "streamgg"),
             "Okru" to listOf("okru", "ok.ru"),
-            // FIX #7: also alias "Upload" (legacy/hoster label) so stored prefs keep working.
             "Uqload" to listOf("uqload", "upload"),
             "Upload" to listOf("uqload", "upload"),
             "Filemoon" to listOf("filemoon", "bysekoze", "moonplayer", "files.im", "moviesm4u", "filemoon.sx"),
@@ -86,7 +85,6 @@ abstract class MonosChinos :
         private val QUALITY_REGEX = Regex("""(\d+)p""")
         private val NON_ALNUM = Regex("[^a-z0-9]")
 
-        // FIX #10: extract just the numeric part from "EP 12", "Episodio 12", "Ep. 12", etc.
         private val EP_NUM_REGEX = Regex("""(\d+(?:\.\d+)?)""")
     }
 
@@ -133,8 +131,6 @@ abstract class MonosChinos :
             val title = a.selectFirst("h3, h2, .title, .card-title")?.text()
                 ?: return@mapNotNull null
 
-            // FIX #10 + #11: pull only the number out of "EP 12"/"Episodio 12"/"Ep. 12",
-            // and drop the redundant `.trim()` (Jsoup already trims `.text()`).
             val episodeNumber = a.select("span, div")
                 .firstOrNull { it.text().lowercase().startsWith("ep") }
                 ?.text()
@@ -230,8 +226,6 @@ abstract class MonosChinos :
         val animeUrl = "$baseUrl${anime.url}"
         val document = client.get(animeUrl, headers).asJsoup()
 
-        // FIX #1: resolve `data-ajax` and reject it unless it points to the same origin.
-        // Otherwise the CSRF `_token` would be sent to a third-party host.
         val rawAjax = document.selectFirst("section.caplist")?.attr("data-ajax")
             ?.takeIf { it.isNotBlank() } ?: return emptyList()
 
@@ -279,9 +273,6 @@ abstract class MonosChinos :
                 .set("Accept", "application/json, text/javascript, */*; q=0.01")
                 .build()
 
-            // FIX #3: never swallow cancellation.
-            // FIX #4: rethrow parse/network errors so the app reports a failure
-            // instead of silently serving a truncated episode list as complete.
             val json = try {
                 val request = Request.Builder()
                     .url(paginatedUrl)
@@ -345,8 +336,6 @@ abstract class MonosChinos :
                 null
             } ?: return@mapNotNull null
 
-            // FIX #2: refuse to feed arbitrary schemes/hosts into the WebView-based
-            // UniversalExtractor. Only http(s) on public hosts are accepted.
             if (!isSafeHosterUrl(decodedUrl)) return@mapNotNull null
 
             val serverName = button.attr("data-server").takeIf { it.isNotBlank() }
@@ -388,7 +377,6 @@ abstract class MonosChinos :
         "voe" to listOf("voe", "tubelessceliolymph", "simpulumlamerop", "urochsunloath", "nathanfromsubject", "yip.", "metagnathtuggers", "donaldlineelse"),
         "okru" to listOf("ok.ru", "okru"),
         "filemoon" to listOf("filemoon", "moonplayer", "moviesm4u", "files.im", "filemoon.sx", "bysekoze"),
-        // FIX #6: "Upload" is a common site label for Uqload.
         "uqload" to listOf("uqload", "upload"),
         "mp4upload" to listOf("mp4upload"),
         "streamwish" to listOf("wishembed", "streamwish", "strwish", "wish", "kswplayer", "swhoi", "multimovies", "uqloads", "neko-stream", "swdyu", "iplayerhls", "streamgg"),
@@ -410,14 +398,10 @@ abstract class MonosChinos :
         val source = url.lowercase()
         val serverKey = serverName.lowercase().replace(NON_ALNUM, "")
 
-        // FIX #8: exact-alias match first so "uqloads" reaches StreamWish and
-        // not Uqload (which would otherwise win via substring containment).
         val exactMatched = conventions.firstOrNull { (_, aliases) ->
             aliases.any { alias -> alias.lowercase().replace(NON_ALNUM, "") == serverKey }
         }?.first
 
-        // FIX #5: skip the substring pass entirely when the hoster label is empty —
-        // otherwise `k.contains("")` matches the very first convention (Voe) for everyone.
         val nameMatched = exactMatched ?: if (serverKey.isEmpty()) {
             null
         } else {
@@ -467,8 +451,6 @@ abstract class MonosChinos :
     }
 
     private fun buildDoodCandidates(url: String): List<String> {
-        // FIX #9: keep the original host as the first candidate so DoodStream
-        // mirrors that are not in `doodstreamDomains` are still attempted.
         val original = url.toHttpUrlOrNull() ?: return listOf(url)
         val path = original.encodedPath
         val query = original.encodedQuery
@@ -509,10 +491,6 @@ abstract class MonosChinos :
 
     // ====================== ASSISTANTS ======================
 
-    /**
-     * FIX #2: only http(s) URLs pointing at a public host are passed to the
-     * WebView-based [UniversalExtractor] (or to any extractor at all).
-     */
     private fun isSafeHosterUrl(url: String): Boolean {
         val u = url.toHttpUrlOrNull() ?: return false
         if (u.scheme != "http" && u.scheme != "https") return false
@@ -521,7 +499,6 @@ abstract class MonosChinos :
         if (host == "localhost" || host.endsWith(".local") || host.endsWith(".internal")) return false
         if (host == "::1" || host == "0.0.0.0") return false
 
-        // Reject IPv4 literals in private / loopback / link-local ranges.
         val parts = host.split(".")
         if (parts.size == 4 && parts.all { it.toIntOrNull() != null }) {
             val a = parts[0].toInt()
