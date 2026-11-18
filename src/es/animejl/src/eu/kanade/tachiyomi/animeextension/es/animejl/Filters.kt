@@ -6,32 +6,30 @@ import keiyoushi.utils.firstInstance
 import java.util.Calendar
 
 object Filters {
-
     open class QueryPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
         AnimeFilter.Select<String>(
             displayName,
             vals.map { it.first }.toTypedArray(),
         ) {
-        fun toQueryPart(name: String) = vals[state].second.takeIf { it.isNotEmpty() }
-            ?.let { "&$name=${vals[state].second}" } ?: ""
+        fun toQueryPart(name: String) = vals[state].second
+            .takeIf { it.isNotEmpty() }
+            ?.let { "&$name=${vals[state].second}" }
+            ?: ""
     }
 
-    open class CheckBoxFilterList(name: String, values: List<CheckBoxVal>) :
+    open class CheckBoxFilterList(name: String, values: List<CheckBox>) :
         AnimeFilter.Group<AnimeFilter.CheckBox>(name, values)
 
-    // ✅ pública: ya no se expone un tipo internal en una firma pública
-    class CheckBoxVal(name: String, state: Boolean = false) :
+    private class CheckBoxVal(name: String, state: Boolean = false) :
         AnimeFilter.CheckBox(name, state)
 
-    // ✅ sin genérico: R no se usaba y no era inferible
-    private fun AnimeFilterList.parseCheckbox(
+    private inline fun <reified R> AnimeFilterList.parseCheckbox(
         options: Array<Pair<String, String>>,
         name: String,
-    ): String = this.firstInstance<CheckBoxFilterList>()
-        .state
+    ): String = firstInstance<R>().state
         .mapNotNull { checkbox ->
             if (checkbox.state) {
-                options.find { it.first == checkbox.name }!!.second
+                options.find { it.first == checkbox.name }?.second
             } else {
                 null
             }
@@ -39,11 +37,12 @@ object Filters {
         .joinToString("&$name[]=")
         .let { if (it.isBlank()) "" else "&$name[]=$it" }
 
-    private fun AnimeFilterList.asQueryPart(name: String): String =
-        this.firstInstance<QueryPartFilter>().toQueryPart(name)
+    private inline fun <reified R> AnimeFilterList.asQueryPart(name: String): String =
+        firstInstance<R>().toQueryPart(name)
 
-    private fun String.changePrefix() = this.takeIf { it.startsWith("&") }
-        ?.let { this.replaceFirst("&", "?") } ?: this
+    private fun String.changePrefix() = takeIf { it.startsWith("&") }
+        ?.let { replaceFirst("&", "?") }
+        ?: this
 
     data class FilterSearchParams(val filter: String = "") {
         fun getQuery() = filter.changePrefix()
@@ -52,46 +51,35 @@ object Filters {
     internal fun getSearchParameters(filters: AnimeFilterList): FilterSearchParams {
         if (filters.isEmpty()) return FilterSearchParams()
         return FilterSearchParams(
-            filters.parseCheckbox(FilterData.GENRES, "genre") +
-                filters.parseCheckbox(FilterData.YEARS, "year") +
-                filters.parseCheckbox(FilterData.TYPES, "type") +
-                filters.parseCheckbox(FilterData.STATE, "estado") +
-                filters.asQueryPart("order"),
+            filters.parseCheckbox<GenresFilter>(FiltersData.GENRES, "genre") +
+                filters.parseCheckbox<YearsFilter>(FiltersData.YEARS, "year") +
+                filters.parseCheckbox<TypesFilter>(FiltersData.TYPES, "type") +
+                filters.parseCheckbox<StateFilter>(FiltersData.STATE, "estado") +
+                filters.asQueryPart<SortFilter>("order"),
         )
     }
 
-    val FILTER_LIST get() = AnimeFilterList(
-        AnimeFilter.Header("La busqueda por texto ignora el filtro"),
-        GenresFilter(),
-        YearsFilter(),
-        TypesFilter(),
-        StateFilter(),
-        SortFilter(),
-    )
+    val FILTER_LIST: AnimeFilterList
+        get() = AnimeFilterList(
+            AnimeFilter.Header("La busqueda por texto ignora el filtro"),
+            GenresFilter(),
+            YearsFilter(),
+            TypesFilter(),
+            StateFilter(),
+            SortFilter(),
+        )
 
-    class GenresFilter : CheckBoxFilterList(
-        "Género",
-        FilterData.GENRES.map { CheckBoxVal(it.first, false) },
-    )
+    class GenresFilter : CheckBoxFilterList("Género", FiltersData.GENRES.map { CheckBoxVal(it.first) })
 
-    class YearsFilter : CheckBoxFilterList(
-        "Año",
-        FilterData.YEARS.map { CheckBoxVal(it.first, false) },
-    )
+    class YearsFilter : CheckBoxFilterList("Año", FiltersData.YEARS.map { CheckBoxVal(it.first) })
 
-    class TypesFilter : CheckBoxFilterList(
-        "Tipo",
-        FilterData.TYPES.map { CheckBoxVal(it.first, false) },
-    )
+    class TypesFilter : CheckBoxFilterList("Tipo", FiltersData.TYPES.map { CheckBoxVal(it.first) })
 
-    class StateFilter : CheckBoxFilterList(
-        "Estado",
-        FilterData.STATE.map { CheckBoxVal(it.first, false) },
-    )
+    class StateFilter : CheckBoxFilterList("Estado", FiltersData.STATE.map { CheckBoxVal(it.first) })
 
-    class SortFilter : QueryPartFilter("Orden", FilterData.SORT)
+    class SortFilter : QueryPartFilter("Orden", FiltersData.SORT)
 
-    private object FilterData {
+    private object FiltersData {
         val YEARS = (1990..Calendar.getInstance().get(Calendar.YEAR))
             .map { Pair("$it", "$it") }
             .reversed()
