@@ -117,7 +117,6 @@ abstract class Animejl : AnimeHttpSource(), ConfigurableAnimeSource {
     }
 
     /*--------------------------------Seasons------------------------------------*/
-    // AnimeJL no separa por temporadas: devolvemos lista vacía.
     override fun seasonListParse(response: Response): List<SAnime> = emptyList()
 
     /*--------------------------------Episodes-----------------------------------*/
@@ -147,7 +146,6 @@ abstract class Animejl : AnimeHttpSource(), ConfigurableAnimeSource {
     }
 
     /*--------------------------------Hosters------------------------------------*/
-    // AnimeJL no separa por hosters: un único Hoster que agrupa todos los videos.
     override fun hosterListParse(response: Response): List<Hoster> =
         listOf(Hoster(hosterName = "AnimeJL"))
 
@@ -162,13 +160,13 @@ abstract class Animejl : AnimeHttpSource(), ConfigurableAnimeSource {
     private val uqloadExtractor by lazy { UqloadExtractor(client) }
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
 
-    // ✅ Nueva firma obligatoria en lib 16: recibe el Hoster seleccionado.
     override fun videoListParse(response: Response, hoster: Hoster): List<Video> {
         val document = response.asJsoup()
         val scriptContent = document.selectFirst("script:containsData(var video = [)")?.data()
             ?: return emptyList()
         val videoPattern = Regex("""video\[\d+] = '([^']+)'""")
-        return videoPattern.findAll(scriptContent).catchingFlatMapBlocking { match ->
+        // ✅ .toList() convierte Sequence<MatchResult> en Iterable<MatchResult>
+        return videoPattern.findAll(scriptContent).toList().catchingFlatMapBlocking { match ->
             val url = match.groupValues[1]
             when {
                 url.contains("streamtape") -> listOfNotNull(streamTapeExtractor.videoFromUrl(url))
