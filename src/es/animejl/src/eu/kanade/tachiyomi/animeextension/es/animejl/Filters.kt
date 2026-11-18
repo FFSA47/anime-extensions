@@ -16,11 +16,9 @@ object Filters {
             ?.let { "&$name=${vals[state].second}" } ?: ""
     }
 
-    open class CheckBoxFilterList(name: String, values: List<CheckBoxVal>) :
-        AnimeFilter.Group<AnimeFilter.CheckBox>(name, values)
+    open class CheckBoxFilterList(name: String, values: List<CheckBoxVal>) : AnimeFilter.Group<AnimeFilter.CheckBox>(name, values)
 
-    private class CheckBoxVal(name: String, state: Boolean = false) :
-        AnimeFilter.CheckBox(name, state)
+    private class CheckBoxVal(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
 
     private inline fun <reified R : AnimeFilter> AnimeFilterList.parseCheckbox(
         options: Array<Pair<String, String>>,
@@ -37,8 +35,7 @@ object Filters {
         .joinToString("&$name[]=")
         .let { if (it.isBlank()) "" else "&$name[]=$it" }
 
-    private inline fun <reified R : AnimeFilter> AnimeFilterList.asQueryPart(name: String): String =
-        this.firstInstance<QueryPartFilter>().toQueryPart(name)
+    private inline fun <reified R : AnimeFilter> AnimeFilterList.asQueryPart(name: String): String = this.firstInstance<QueryPartFilter>().toQueryPart(name)
 
     private fun String.changePrefix() = this.takeIf { it.startsWith("&") }
         ?.let { this.replaceFirst("&", "?") } ?: this
@@ -67,25 +64,29 @@ object Filters {
         SortFilter(),
     )
 
-    class GenresFilter : CheckBoxFilterList(
-        "Género",
-        FilterData.GENRES.map { CheckBoxVal(it.first, false) },
-    )
+    class GenresFilter :
+        CheckBoxFilterList(
+            "Género",
+            FilterData.GENRES.map { CheckBoxVal(it.first, false) },
+        )
 
-    class YearsFilter : CheckBoxFilterList(
-        "Año",
-        FilterData.YEARS.map { CheckBoxVal(it.first, false) },
-    )
+    class YearsFilter :
+        CheckBoxFilterList(
+            "Año",
+            FilterData.YEARS.map { CheckBoxVal(it.first, false) },
+        )
 
-    class TypesFilter : CheckBoxFilterList(
-        "Tipo",
-        FilterData.TYPES.map { CheckBoxVal(it.first, false) },
-    )
+    class TypesFilter :
+        CheckBoxFilterList(
+            "Tipo",
+            FilterData.TYPES.map { CheckBoxVal(it.first, false) },
+        )
 
-    class StateFilter : CheckBoxFilterList(
-        "Estado",
-        FilterData.STATE.map { CheckBoxVal(it.first, false) },
-    )
+    class StateFilter :
+        CheckBoxFilterList(
+            "Estado",
+            FilterData.STATE.map { CheckBoxVal(it.first, false) },
+        )
 
     class SortFilter : QueryPartFilter("Orden", FilterData.SORT)
 

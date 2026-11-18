@@ -25,11 +25,12 @@ import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Request
 import okhttp3.Response
-import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
 @Source
-abstract class Animejl : AnimeHttpSource(), ConfigurableAnimeSource {
+abstract class Animejl :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val supportsLatest = true
     private val preferences by getPreferencesLazy()
@@ -42,20 +43,24 @@ abstract class Animejl : AnimeHttpSource(), ConfigurableAnimeSource {
         private const val PREF_SERVER_KEY = "preferred_server"
         private const val PREF_SERVER_DEFAULT = "StreamWish"
         private val SERVER_LIST = arrayOf(
-            "StreamWish", "YourUpload", "Okru", "StreamTape",
-            "StreamHideVid", "Voe", "Uqload", "Mp4upload",
+            "StreamWish",
+            "YourUpload",
+            "Okru",
+            "StreamTape",
+            "StreamHideVid",
+            "Voe",
+            "Uqload",
+            "Mp4upload",
         )
     }
 
     /*--------------------------------Popular------------------------------------*/
-    override fun popularAnimeRequest(page: Int): Request =
-        GET("$baseUrl/animes?order=rating&page=$page")
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/animes?order=rating&page=$page")
 
     override fun popularAnimeParse(response: Response): AnimesPage = animesPageParse(response)
 
     /*--------------------------------Latest-------------------------------------*/
-    override fun latestUpdatesRequest(page: Int): Request =
-        GET("$baseUrl/animes?order=updated&page=$page")
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/animes?order=updated&page=$page")
 
     override fun latestUpdatesParse(response: Response): AnimesPage = animesPageParse(response)
 
