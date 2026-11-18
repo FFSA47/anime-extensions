@@ -19,12 +19,12 @@ object Filters {
     open class CheckBoxFilterList(name: String, values: List<CheckBoxVal>) :
         AnimeFilter.Group<AnimeFilter.CheckBox>(name, values)
 
-    // ✅ internal: ya no es private, así deja de exponer un tipo privado en API pública
-    internal class CheckBoxVal(name: String, state: Boolean = false) :
+    // ✅ pública: ya no se expone un tipo internal en una firma pública
+    class CheckBoxVal(name: String, state: Boolean = false) :
         AnimeFilter.CheckBox(name, state)
 
-    // ✅ AnimeFilter<*> porque AnimeFilter ahora es genérico
-    private inline fun <reified R : AnimeFilter<*>> AnimeFilterList.parseCheckbox(
+    // ✅ sin genérico: R no se usaba y no era inferible
+    private fun AnimeFilterList.parseCheckbox(
         options: Array<Pair<String, String>>,
         name: String,
     ): String = this.firstInstance<CheckBoxFilterList>()
@@ -39,7 +39,7 @@ object Filters {
         .joinToString("&$name[]=")
         .let { if (it.isBlank()) "" else "&$name[]=$it" }
 
-    private inline fun <reified R : AnimeFilter<*>> AnimeFilterList.asQueryPart(name: String): String =
+    private fun AnimeFilterList.asQueryPart(name: String): String =
         this.firstInstance<QueryPartFilter>().toQueryPart(name)
 
     private fun String.changePrefix() = this.takeIf { it.startsWith("&") }
