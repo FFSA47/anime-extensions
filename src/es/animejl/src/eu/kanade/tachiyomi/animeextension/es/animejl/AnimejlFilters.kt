@@ -2,44 +2,46 @@ package eu.kanade.tachiyomi.animeextension.es.animejl
 
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import keiyoushi.utils.firstInstance
 import java.util.Calendar
 
-object AnimejlFilters {
+object Filters {
+
     open class QueryPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
         AnimeFilter.Select<String>(
             displayName,
             vals.map { it.first }.toTypedArray(),
         ) {
-        fun toQueryPart(name: String) = vals[state].second.takeIf { it.isNotEmpty() }?.let { "&$name=${vals[state].second}" } ?: run { "" }
+        fun toQueryPart(name: String) = vals[state].second.takeIf { it.isNotEmpty() }
+            ?.let { "&$name=${vals[state].second}" } ?: ""
     }
 
-    open class CheckBoxFilterList(name: String, values: List<CheckBox>) : AnimeFilter.Group<AnimeFilter.CheckBox>(name, values)
+    open class CheckBoxFilterList(name: String, values: List<CheckBoxVal>) :
+        AnimeFilter.Group<AnimeFilter.CheckBox>(name, values)
 
-    private class CheckBoxVal(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
+    private class CheckBoxVal(name: String, state: Boolean = false) :
+        AnimeFilter.CheckBox(name, state)
 
-    private inline fun <reified R> AnimeFilterList.parseCheckbox(
+    private inline fun <reified R : AnimeFilter> AnimeFilterList.parseCheckbox(
         options: Array<Pair<String, String>>,
         name: String,
-    ): String = (this.getFirst<R>() as CheckBoxFilterList).state
+    ): String = this.firstInstance<CheckBoxFilterList>()
+        .state
         .mapNotNull { checkbox ->
             if (checkbox.state) {
                 options.find { it.first == checkbox.name }!!.second
             } else {
                 null
             }
-        }.joinToString("&$name[]=").let {
-            if (it.isBlank()) {
-                ""
-            } else {
-                "&$name[]=$it"
-            }
         }
+        .joinToString("&$name[]=")
+        .let { if (it.isBlank()) "" else "&$name[]=$it" }
 
-    private inline fun <reified R> AnimeFilterList.asQueryPart(name: String): String = (this.getFirst<R>() as QueryPartFilter).toQueryPart(name)
+    private inline fun <reified R : AnimeFilter> AnimeFilterList.asQueryPart(name: String): String =
+        this.firstInstance<QueryPartFilter>().toQueryPart(name)
 
-    private inline fun <reified R> AnimeFilterList.getFirst(): R = this.filterIsInstance<R>().first()
-
-    private fun String.changePrefix() = this.takeIf { it.startsWith("&") }?.let { this.replaceFirst("&", "?") } ?: run { this }
+    private fun String.changePrefix() = this.takeIf { it.startsWith("&") }
+        ?.let { this.replaceFirst("&", "?") } ?: this
 
     data class FilterSearchParams(val filter: String = "") {
         fun getQuery() = filter.changePrefix()
@@ -48,11 +50,11 @@ object AnimejlFilters {
     internal fun getSearchParameters(filters: AnimeFilterList): FilterSearchParams {
         if (filters.isEmpty()) return FilterSearchParams()
         return FilterSearchParams(
-            filters.parseCheckbox<GenresFilter>(AnimeFlvFiltersData.GENRES, "genre") +
-                filters.parseCheckbox<YearsFilter>(AnimeFlvFiltersData.YEARS, "year") +
-                filters.parseCheckbox<TypesFilter>(AnimeFlvFiltersData.TYPES, "type") +
-                filters.parseCheckbox<StateFilter>(AnimeFlvFiltersData.STATE, "estado") +
-                filters.asQueryPart<SortFilter>("order"),
+            filters.parseCheckbox(FilterData.GENRES, "genre") +
+                filters.parseCheckbox(FilterData.YEARS, "year") +
+                filters.parseCheckbox(FilterData.TYPES, "type") +
+                filters.parseCheckbox(FilterData.STATE, "estado") +
+                filters.asQueryPart("order"),
         )
     }
 
@@ -65,18 +67,33 @@ object AnimejlFilters {
         SortFilter(),
     )
 
-    class GenresFilter : CheckBoxFilterList("Género", AnimeFlvFiltersData.GENRES.map { CheckBoxVal(it.first, false) })
+    class GenresFilter : CheckBoxFilterList(
+        "Género",
+        FilterData.GENRES.map { CheckBoxVal(it.first, false) },
+    )
 
-    class YearsFilter : CheckBoxFilterList("Año", AnimeFlvFiltersData.YEARS.map { CheckBoxVal(it.first, false) })
+    class YearsFilter : CheckBoxFilterList(
+        "Año",
+        FilterData.YEARS.map { CheckBoxVal(it.first, false) },
+    )
 
-    class TypesFilter : CheckBoxFilterList("Tipo", AnimeFlvFiltersData.TYPES.map { CheckBoxVal(it.first, false) })
+    class TypesFilter : CheckBoxFilterList(
+        "Tipo",
+        FilterData.TYPES.map { CheckBoxVal(it.first, false) },
+    )
 
-    class StateFilter : CheckBoxFilterList("Estado", AnimeFlvFiltersData.STATE.map { CheckBoxVal(it.first, false) })
+    class StateFilter : CheckBoxFilterList(
+        "Estado",
+        FilterData.STATE.map { CheckBoxVal(it.first, false) },
+    )
 
-    class SortFilter : QueryPartFilter("Orden", AnimeFlvFiltersData.SORT)
+    class SortFilter : QueryPartFilter("Orden", FilterData.SORT)
 
-    private object AnimeFlvFiltersData {
-        val YEARS = (1990..Calendar.getInstance().get(Calendar.YEAR)).map { Pair("$it", "$it") }.reversed().toTypedArray()
+    private object FilterData {
+        val YEARS = (1990..Calendar.getInstance().get(Calendar.YEAR))
+            .map { Pair("$it", "$it") }
+            .reversed()
+            .toTypedArray()
 
         val TYPES = arrayOf(
             Pair("Anime", "1"),
@@ -150,7 +167,6 @@ object AnimejlFilters {
             Pair("Venganza", "74"),
             Pair("Yaoi", "53"),
             Pair("Yuri", "52"),
-
         )
     }
 }
