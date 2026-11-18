@@ -2,8 +2,8 @@ package eu.kanade.tachiyomi.animeextension.es.animejl
 
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
-import keiyoushi.utils.firstInstance
 import java.util.Calendar
+import keiyoushi.utils.firstInstance
 
 object Filters {
     open class QueryPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
@@ -11,10 +11,7 @@ object Filters {
             displayName,
             vals.map { it.first }.toTypedArray(),
         ) {
-        fun toQueryPart(name: String) = vals[state].second
-            .takeIf { it.isNotEmpty() }
-            ?.let { "&$name=${vals[state].second}" }
-            ?: ""
+        fun toQueryPart(name: String) = vals[state].second.takeIf { it.isNotEmpty() }?.let { "&$name=${vals[state].second}" } ?: ""
     }
 
     open class CheckBoxFilterList(name: String, values: List<CheckBox>) :
@@ -27,22 +24,14 @@ object Filters {
         options: Array<Pair<String, String>>,
         name: String,
     ): String = firstInstance<R>().state
-        .mapNotNull { checkbox ->
-            if (checkbox.state) {
-                options.find { it.first == checkbox.name }?.second
-            } else {
-                null
-            }
-        }
+        .filter { it.state }
+        .mapNotNull { checkbox -> options.find { it.first == checkbox.name }?.second }
         .joinToString("&$name[]=")
         .let { if (it.isBlank()) "" else "&$name[]=$it" }
 
-    private inline fun <reified R> AnimeFilterList.asQueryPart(name: String): String =
-        firstInstance<R>().toQueryPart(name)
+    private inline fun <reified R> AnimeFilterList.asQueryPart(name: String): String = firstInstance<R>().toQueryPart(name)
 
-    private fun String.changePrefix() = takeIf { it.startsWith("&") }
-        ?.let { replaceFirst("&", "?") }
-        ?: this
+    private fun String.changePrefix() = takeIf { it.startsWith("&") }?.let { replaceFirst("&", "?") } ?: this
 
     data class FilterSearchParams(val filter: String = "") {
         fun getQuery() = filter.changePrefix()
@@ -59,15 +48,14 @@ object Filters {
         )
     }
 
-    val FILTER_LIST: AnimeFilterList
-        get() = AnimeFilterList(
-            AnimeFilter.Header("La busqueda por texto ignora el filtro"),
-            GenresFilter(),
-            YearsFilter(),
-            TypesFilter(),
-            StateFilter(),
-            SortFilter(),
-        )
+    val FILTER_LIST get() = AnimeFilterList(
+        AnimeFilter.Header("La busqueda por texto ignora el filtro"),
+        GenresFilter(),
+        YearsFilter(),
+        TypesFilter(),
+        StateFilter(),
+        SortFilter(),
+    )
 
     class GenresFilter : CheckBoxFilterList("Género", FiltersData.GENRES.map { CheckBoxVal(it.first) })
 
@@ -80,10 +68,7 @@ object Filters {
     class SortFilter : QueryPartFilter("Orden", FiltersData.SORT)
 
     private object FiltersData {
-        val YEARS = (1990..Calendar.getInstance().get(Calendar.YEAR))
-            .map { Pair("$it", "$it") }
-            .reversed()
-            .toTypedArray()
+        val YEARS = (1990..Calendar.getInstance().get(Calendar.YEAR)).map { Pair("$it", "$it") }.reversed().toTypedArray()
 
         val TYPES = arrayOf(
             Pair("Anime", "1"),
