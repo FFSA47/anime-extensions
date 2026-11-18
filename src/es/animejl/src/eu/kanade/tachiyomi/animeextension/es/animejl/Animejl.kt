@@ -14,6 +14,7 @@ import aniyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
@@ -28,9 +29,7 @@ import okhttp3.Response
 import org.jsoup.nodes.Element
 
 @Source
-abstract class Animejl :
-    AnimeHttpSource(),
-    ConfigurableAnimeSource {
+abstract class Animejl : AnimeHttpSource(), ConfigurableAnimeSource {
 
     override val supportsLatest = true
     private val preferences by getPreferencesLazy()
@@ -43,24 +42,20 @@ abstract class Animejl :
         private const val PREF_SERVER_KEY = "preferred_server"
         private const val PREF_SERVER_DEFAULT = "StreamWish"
         private val SERVER_LIST = arrayOf(
-            "StreamWish",
-            "YourUpload",
-            "Okru",
-            "StreamTape",
-            "StreamHideVid",
-            "Voe",
-            "Uqload",
-            "Mp4upload",
+            "StreamWish", "YourUpload", "Okru", "StreamTape",
+            "StreamHideVid", "Voe", "Uqload", "Mp4upload",
         )
     }
 
     /*--------------------------------Popular------------------------------------*/
-    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/animes?order=rating&page=$page")
+    override fun popularAnimeRequest(page: Int): Request =
+        GET("$baseUrl/animes?order=rating&page=$page")
 
     override fun popularAnimeParse(response: Response): AnimesPage = animesPageParse(response)
 
     /*--------------------------------Latest-------------------------------------*/
-    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/animes?order=updated&page=$page")
+    override fun latestUpdatesRequest(page: Int): Request =
+        GET("$baseUrl/animes?order=updated&page=$page")
 
     override fun latestUpdatesParse(response: Response): AnimesPage = animesPageParse(response)
 
@@ -121,6 +116,10 @@ abstract class Animejl :
         else -> SAnime.UNKNOWN
     }
 
+    /*--------------------------------Seasons------------------------------------*/
+    // AnimeJL no separa por temporadas: devolvemos lista vacía.
+    override fun seasonListParse(response: Response): List<SAnime> = emptyList()
+
     /*--------------------------------Episodes-----------------------------------*/
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()
@@ -136,18 +135,21 @@ abstract class Animejl :
         val animeSlug = animeInfo.getOrNull(2) ?: ""
         val animeId = animeInfo.getOrNull(0) ?: ""
         val episodePattern = Regex("\\[(\\d+),\"(.*?)\",\"(.*?)\",\"(.*?)\"]")
-        val episodeMatches = episodePattern.findAll(episodesString)
-        episodeMatches.forEach { match ->
+        episodePattern.findAll(episodesString).forEach { match ->
             val episodeNumber = match.groupValues[1].toIntOrNull() ?: return@forEach
-            val url = "$baseUrl/anime/$animeId/$animeSlug/episodio-$episodeNumber"
             val episode = SEpisode.create()
-            episode.setUrlWithoutDomain(url)
+            episode.setUrlWithoutDomain("$baseUrl/anime/$animeId/$animeSlug/episodio-$episodeNumber")
             episode.episode_number = episodeNumber.toFloat()
             episode.name = "Episodio $episodeNumber"
             episodeList.add(episode)
         }
         return episodeList.sortedByDescending { it.episode_number }
     }
+
+    /*--------------------------------Hosters------------------------------------*/
+    // AnimeJL no separa por hosters: un único Hoster que agrupa todos los videos.
+    override fun hosterListParse(response: Response): List<Hoster> =
+        listOf(Hoster(hosterName = "AnimeJL"))
 
     /*--------------------------------Video extractors------------------------------------*/
     private val streamTapeExtractor by lazy { StreamTapeExtractor(client) }
@@ -160,7 +162,8 @@ abstract class Animejl :
     private val uqloadExtractor by lazy { UqloadExtractor(client) }
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
 
-    override fun videoListParse(response: Response): List<Video> {
+    // ✅ Nueva firma obligatoria en lib 16: recibe el Hoster seleccionado.
+    override fun videoListParse(response: Response, hoster: Hoster): List<Video> {
         val document = response.asJsoup()
         val scriptContent = document.selectFirst("script:containsData(var video = [)")?.data()
             ?: return emptyList()
