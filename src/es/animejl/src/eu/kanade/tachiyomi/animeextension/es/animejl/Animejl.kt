@@ -50,8 +50,7 @@ abstract class Animejl :
 
         private val IFRAME_PATTERN = Regex("""video\[\d+] = '<iframe src="(.*?)"""")
         private val ANIME_INFO_PATTERN = Regex("var anime_info = \\[(.*?)];")
-        private val EPISODES_ARRAY_PATTERN =
-            Regex("var episodes = (\\[.*?]);", RegexOption.DOT_MATCHES_ALL)
+        private val EPISODES_ARRAY_PATTERN = Regex("var episodes = (\\[.*?]);", RegexOption.DOT_MATCHES_ALL)
         private val EPISODE_ENTRY_PATTERN = Regex("\\[(\\d+),\"(.*?)\",\"(.*?)\",\"(.*?)\"]")
         private val RESOLUTION_PATTERN = Regex("""(\d+)p""")
     }
@@ -86,10 +85,8 @@ abstract class Animejl :
                     .build(),
                 headers,
             )
-            params.filter.isNotBlank() ->
-                client.get("$baseUrl/animes${params.getQuery()}&page=$page", headers)
-            else ->
-                client.get("$baseUrl/animes?order=rating&page=$page", headers)
+            params.filter.isNotBlank() -> client.get("$baseUrl/animes${params.getQuery()}&page=$page", headers)
+            else -> client.get("$baseUrl/animes?order=rating&page=$page", headers)
         }
         return response.parseAnimePage()
     }
@@ -116,23 +113,17 @@ abstract class Animejl :
 
     private fun SAnime.updateFrom(document: Document): SAnime {
         title = document.selectFirst("div.Ficha.fchlt div.Container .Title")!!.text()
-        thumbnail_url = document.selectFirst("div.AnimeCover div.Image figure img")
-            ?.attr("abs:src")
-        description = document.selectFirst("div.Description")
-            ?.text()
-            ?.removeSurrounding("\"")
+        thumbnail_url = document.selectFirst("div.AnimeCover div.Image figure img")?.attr("abs:src")
+        description = document.selectFirst("div.Description")?.text()?.removeSurrounding("\"")
         genre = document.select("nav.Nvgnrs a").joinToString { it.text() }
         status = parseStatus(document.select("span.fa-tv").text())
         return this
     }
 
     private fun Document.toEpisodeList(): List<SEpisode> {
-        val script = selectFirst("script:containsData(var episodes =)")?.data()
-            ?: return emptyList()
-
+        val script = selectFirst("script:containsData(var episodes =)")?.data() ?: return emptyList()
         val episodesMatch = EPISODES_ARRAY_PATTERN.find(script) ?: return emptyList()
         val animeInfoMatch = ANIME_INFO_PATTERN.find(script) ?: return emptyList()
-
         val animeInfo = animeInfoMatch.groupValues[1].split(",").map { it.trim('"') }
         val animeId = animeInfo.getOrNull(0) ?: return emptyList()
         val animeSlug = animeInfo.getOrNull(2) ?: return emptyList()
@@ -150,10 +141,13 @@ abstract class Animejl :
             .toList()
     }
 
-    private fun parseStatus(statusString: String): Int = when {
-        statusString.lowercase().contains("en emision") -> SAnime.ONGOING
-        statusString.lowercase().contains("finalizado") -> SAnime.COMPLETED
-        else -> SAnime.UNKNOWN
+    private fun parseStatus(statusString: String): Int {
+        val status = statusString.lowercase()
+        return when {
+            status.contains("en emision") -> SAnime.ONGOING
+            status.contains("finalizado") -> SAnime.COMPLETED
+            else -> SAnime.UNKNOWN
+        }
     }
 
     /* ------------------------------- Hosters / Videos ----------------------------- */
@@ -170,8 +164,7 @@ abstract class Animejl :
 
     override suspend fun fetchHosterList(episode: SEpisode): List<Hoster> {
         val document = client.get("$baseUrl${episode.url}", headers).asJsoup()
-        val scriptContent = document.selectFirst("script:containsData(var video = [)")?.data()
-            ?: return emptyList()
+        val scriptContent = document.selectFirst("script:containsData(var video = [)")?.data() ?: return emptyList()
 
         return IFRAME_PATTERN.findAll(scriptContent)
             .map { it.groupValues[1] }
@@ -212,8 +205,7 @@ abstract class Animejl :
 
     private fun Response.parseAnimePage(): AnimesPage {
         val document = asJsoup()
-        val animes = document.select("div.Container ul.ListAnimes li article")
-            .mapNotNull { it.toSAnimeOrNull() }
+        val animes = document.select("div.Container ul.ListAnimes li article").mapNotNull { it.toSAnimeOrNull() }
         val hasNextPage = document.selectFirst("ul.pagination li a[rel=\"next\"]") != null
         return AnimesPage(animes, hasNextPage)
     }
@@ -226,8 +218,7 @@ abstract class Animejl :
         return SAnime.create().apply {
             setUrlWithoutDomain(url)
             this.title = title
-            thumbnail_url = select("a div.Image figure img").attr("src")
-                .replace("/storage", "$baseUrl/storage")
+            thumbnail_url = select("a div.Image figure img").attr("src").replace("/storage", "$baseUrl/storage")
             description = select("div.Description p:eq(2)").text().removeSurrounding("\"")
         }
     }
@@ -237,7 +228,7 @@ abstract class Animejl :
     override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
         val server = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)!!
-        return sortedWith(
+        return this.sortedWith(
             compareBy(
                 { it.videoTitle.contains(server, true) },
                 { it.videoTitle.contains(quality) },
