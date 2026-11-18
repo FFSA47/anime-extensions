@@ -23,13 +23,13 @@ object Filters {
     private inline fun <reified R> AnimeFilterList.parseCheckbox(
         options: Array<Pair<String, String>>,
         name: String,
-    ): String = firstInstance<R>().state
+    ): String = (firstInstance<R>() as CheckBoxFilterList).state
         .filter { it.state }
         .mapNotNull { checkbox -> options.find { it.first == checkbox.name }?.second }
         .joinToString("&$name[]=")
         .let { if (it.isBlank()) "" else "&$name[]=$it" }
 
-    private inline fun <reified R> AnimeFilterList.asQueryPart(name: String): String = firstInstance<R>().toQueryPart(name)
+    private inline fun <reified R> AnimeFilterList.asQueryPart(name: String): String = (firstInstance<R>() as QueryPartFilter).toQueryPart(name)
 
     private fun String.changePrefix() = takeIf { it.startsWith("&") }?.let { replaceFirst("&", "?") } ?: this
 
