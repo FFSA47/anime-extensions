@@ -16,13 +16,13 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
-import eu.kanade.tachiyomi.animesource.model.SAnimeUpdate
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.annotation.Source
 import keiyoushi.network.get
 import keiyoushi.source.AniSource
+import keiyoushi.source.SAnimeUpdate
 import keiyoushi.utils.getPreferencesLazy
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Response
@@ -33,6 +33,8 @@ import org.jsoup.nodes.Element
 abstract class Animejl :
     AniSource(),
     ConfigurableAnimeSource {
+
+    override val supportsLatest = true
 
     private val preferences by getPreferencesLazy()
 
@@ -64,7 +66,7 @@ abstract class Animejl :
 
     /* ---------------------------------- Latest ----------------------------------- */
 
-    override suspend fun getLatestAnime(page: Int): AnimesPage {
+    override suspend fun getLatestUpdates(page: Int): AnimesPage {
         val response = client.get("$baseUrl/animes?order=updated&page=$page", headers)
         return response.parseAnimePage()
     }
@@ -168,7 +170,7 @@ abstract class Animejl :
 
         return IFRAME_PATTERN.findAll(scriptContent)
             .map { it.groupValues[1] }
-            .map { url -> Hoster(url, serverName(url), url) }
+            .map { url -> Hoster(url, serverName(url), internalData = url) }
             .toList()
     }
 
@@ -177,7 +179,7 @@ abstract class Animejl :
         return extractVideos(url)
     }
 
-    private fun extractVideos(url: String): List<Video> = when {
+    private suspend fun extractVideos(url: String): List<Video> = when {
         url.contains("streamtape") -> listOfNotNull(streamTapeExtractor.videoFromUrl(url))
         url.contains("ok.ru") -> okruExtractor.videosFromUrl(url)
         url.contains("yourupload") -> yourUploadExtractor.videoFromUrl(url, headers)
