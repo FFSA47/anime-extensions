@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.animeextension.es.animejl
 
-import android.util.Log
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
@@ -97,7 +96,6 @@ abstract class Animejl : AnimeHttpSource(), ConfigurableAnimeSource {
     }
 
     /*--------------------------------Details------------------------------------*/
-    // ✅ Firma correcta para AnimeHttpSource: recibe Response, no Document
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.asJsoup()
         val anime = SAnime.create()
@@ -119,7 +117,6 @@ abstract class Animejl : AnimeHttpSource(), ConfigurableAnimeSource {
     }
 
     /*--------------------------------Episodes-----------------------------------*/
-    // ✅ Implementado correctamente: sobrescribe el abstracto de AnimeHttpSource
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()
         val episodeList = mutableListOf<SEpisode>()
@@ -136,17 +133,13 @@ abstract class Animejl : AnimeHttpSource(), ConfigurableAnimeSource {
         val episodePattern = Regex("\\[(\\d+),\"(.*?)\",\"(.*?)\",\"(.*?)\"]")
         val episodeMatches = episodePattern.findAll(episodesString)
         episodeMatches.forEach { match ->
-            try {
-                val episodeNumber = match.groupValues[1].toIntOrNull() ?: 0
-                val url = "$baseUrl/anime/$animeId/$animeSlug/episodio-$episodeNumber"
-                val episode = SEpisode.create()
-                episode.setUrlWithoutDomain(url)
-                episode.episode_number = episodeNumber.toFloat()
-                episode.name = "Episodio $episodeNumber"
-                episodeList.add(episode)
-            } catch (e: Exception) {
-                Log.e("Animejl", "Error processing episode: ${e.message}")
-            }
+            val episodeNumber = match.groupValues[1].toIntOrNull() ?: return@forEach
+            val url = "$baseUrl/anime/$animeId/$animeSlug/episodio-$episodeNumber"
+            val episode = SEpisode.create()
+            episode.setUrlWithoutDomain(url)
+            episode.episode_number = episodeNumber.toFloat()
+            episode.name = "Episodio $episodeNumber"
+            episodeList.add(episode)
         }
         return episodeList.sortedByDescending { it.episode_number }
     }
