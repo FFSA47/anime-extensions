@@ -113,27 +113,40 @@ abstract class Animejl :
     private val uqloadExtractor by lazy { UqloadExtractor(client) }
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
 
-    override fun videoListParse(response: Response): List<Video> {
-        val document = response.asJsoup()
-        val scriptContent = document.selectFirst("script:containsData(var video = [)")?.data()
-            ?: return emptyList()
-        val videoPattern = Regex("""video\[\d+] = '<iframe src="(.*?)"""")
-        val matches = videoPattern.findAll(scriptContent)
-        return matches.toList().catchingFlatMapBlocking { match ->
-            val url = match.groupValues[1]
-            when {
-                url.contains("streamtape") -> listOfNotNull(streamTapeExtractor.videoFromUrl(url))
-                url.contains("ok.ru") -> okruExtractor.videosFromUrl(url)
-                url.contains("yourupload") -> yourUploadExtractor.videoFromUrl(url, headers)
-                url.contains("streamwish") || url.contains("playerwish") -> streamWishExtractor.videosFromUrl(url)
-                url.contains("streamhidevid") -> vidHideExtractor.videosFromUrl(url)
-                url.contains("voe") -> voeExtractor.videosFromUrl(url)
-                url.contains("uqload") -> uqloadExtractor.videosFromUrl(url)
-                url.contains("mp4upload") -> mp4uploadExtractor.videosFromUrl(url, headers)
-                else -> universalExtractor.videosFromUrl(url, headers)
-            }
+override fun videoListParse(response: Response): List<Video> {
+    val document = response.asJsoup()
+    val scriptContent = document.selectFirst("script:containsData(var video = [)")?.data()
+        ?: return emptyList()
+    val videoPattern = Regex("""video\[\d+] = '([^']+)'""")
+    return videoPattern.findAll(scriptContent).toList().catchingFlatMapBlocking { match ->
+        val rawValue = match.groupValues[1]
+
+        // El sitio envuelve cada video en <iframe src="…">; extraer la URL real
+        val url = if (rawValue.trimStart().startsWith("<iframe", ignoreCase = true)) {
+            Regex("""src=["']([^"']+)["']""").find(rawValue)?.groupValues?.get(1)
+                ?: return@catchingFlatMapBlocking emptyList<Video>()
+        } else {
+            rawValue
         }
-    }
+
+        if (url.isBlank()) return@catchingFlatMapBlocking emptyList<Video>()
+
+        when {
+            url.contains("streamtape") -> listOfNotNull(streamTapeExtractor.videoFromUrl(url))
+            url.contains("ok.ru") -> okruExtractor.videosFromUrl(url)
+            url.contains("yourupload") -> yourUploadExtractor.videoFromUrl(url, headers)
+            url.contains("streamwish") ||
+                url.contains("playerwish") ||
+                url.contains("bysezoxexe") -> streamWishExtractor.videosFromUrl(url)
+            url.contains("streamhidevid") || url.contains("vidhide") ->
+                vidHideExtractor.videosFromUrl(url)
+            url.contains("voe") -> voeExtractor.videosFromUrl(url)
+            url.contains("uqload") -> uqloadExtractor.videosFromUrl(url)
+            url.contains("mp4upload") -> mp4uploadExtractor.videosFromUrl(url, headers)
+            else -> universalExtractor.videosFromUrl(url, headers)
+        }
+    }.distinctBy { it.videoUrl }
+}
 
     override fun videoListSelector() = throw UnsupportedOperationException()
 
