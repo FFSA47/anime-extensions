@@ -30,7 +30,6 @@ import okhttp3.Response
 import org.jsoup.nodes.Element
 
 @Source
-@OptIn(AnimiruOnly::class)
 abstract class Animejl : AnimeHttpSource(), ConfigurableAnimeSource {
 
     override val supportsLatest = true
@@ -149,6 +148,7 @@ abstract class Animejl : AnimeHttpSource(), ConfigurableAnimeSource {
 
     /*--------------------------------Update (lib16)-------------------------------*/
     // ✅ Tipo correcto para lib16: SAnimeEpisodeUpdate
+    @AnimiruOnly
     override suspend fun getAnimeEpisodeUpdate(
         anime: SAnime,
         episodes: List<SEpisode>,
