@@ -16,7 +16,6 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
-import eu.kanade.tachiyomi.animesource.model.SAnimeEpisodeUpdate
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
@@ -30,6 +29,7 @@ import okhttp3.Response
 import org.jsoup.nodes.Element
 
 @Source
+@OptIn(keiyoushi.annotation.AnimiruOnly::class)
 abstract class Animejl : AnimeHttpSource(), ConfigurableAnimeSource {
 
     override val supportsLatest = true
@@ -121,6 +121,7 @@ abstract class Animejl : AnimeHttpSource(), ConfigurableAnimeSource {
     override fun seasonListParse(response: Response): List<SAnime> = emptyList()
 
     /*--------------------------------Episodes-----------------------------------*/
+    // ✅ Esta implementación es la que usará getAnimeEpisodeUpdate por defecto.
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()
         val episodeList = mutableListOf<SEpisode>()
@@ -146,26 +147,20 @@ abstract class Animejl : AnimeHttpSource(), ConfigurableAnimeSource {
         return episodeList.sortedByDescending { it.episode_number }
     }
 
-    /*--------------------------------Update (lib16)-------------------------------*/
-    // ✅ Tipo correcto para lib16: SAnimeEpisodeUpdate
-    @OptIn(keiyoushi.annotation.AnimiruOnly::class)
-    override suspend fun getAnimeEpisodeUpdate(
-        anime: SAnime,
-        episodes: List<SEpisode>,
-        fetchDetails: Boolean,
-        fetchEpisodes: Boolean,
-    ): SAnimeEpisodeUpdate {
-        if (!fetchDetails && !fetchEpisodes) {
-            return SAnimeEpisodeUpdate(anime, episodes)
-        }
-        // AnimeJL no tiene endpoints separados para "update",
-        // así que devolvemos lo mismo que ya se parseó en details/episodes.
-        return SAnimeEpisodeUpdate(anime, episodes)
-    }
+    /* ⛔️ getAnimeEpisodeUpdate ELIMINADO: la implementación base de lib16
+       llamará a episodeListParse cuando sea necesario. */
 
     /*--------------------------------Hosters------------------------------------*/
-    override fun hosterListParse(response: Response): List<Hoster> =
-        listOf(Hoster(hosterName = "AnimeJL"))
+    // ✅ Hoster con hosterUrl para que el host realice la petición de video.
+    override fun hosterListParse(response: Response): List<Hoster> {
+        val episodeUrl = response.request.url.toString()
+        return listOf(
+            Hoster(
+                hosterUrl = episodeUrl,
+                hosterName = "AnimeJL",
+            ),
+        )
+    }
 
     /*--------------------------------Video extractors------------------------------------*/
     private val streamTapeExtractor by lazy { StreamTapeExtractor(client) }
@@ -201,7 +196,6 @@ abstract class Animejl : AnimeHttpSource(), ConfigurableAnimeSource {
     }
 
     /*--------------------------------Filters------------------------------------*/
-    // ✅ Referencia correcta al objeto Filters
     override fun getFilterList(): AnimeFilterList = Filters.FILTER_LIST
 
     /*--------------------------------Sorting------------------------------------*/
