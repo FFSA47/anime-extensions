@@ -148,7 +148,7 @@ abstract class Animejl : AnimeHttpSource(), ConfigurableAnimeSource {
 
     /*--------------------------------Update (lib16)-------------------------------*/
     // ✅ Tipo correcto para lib16: SAnimeEpisodeUpdate
-    @AnimiruOnly
+    @OptIn(AnimiruOnly::class)
     override suspend fun getAnimeEpisodeUpdate(
         anime: SAnime,
         episodes: List<SEpisode>,
