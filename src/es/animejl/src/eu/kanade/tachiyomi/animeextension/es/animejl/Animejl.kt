@@ -30,6 +30,7 @@ import okhttp3.Response
 import org.jsoup.nodes.Element
 
 @Source
+@OptIn(AnimiruOnly::class)
 abstract class Animejl : AnimeHttpSource(), ConfigurableAnimeSource {
 
     override val supportsLatest = true
