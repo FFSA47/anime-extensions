@@ -13,9 +13,10 @@ import aniyomi.lib.voeextractor.VoeExtractor
 import aniyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
-import eu.kanade.tachiyomi.animesource.model.AnimeUpdate
+import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
+import eu.kanade.tachiyomi.animesource.model.SAnimeUpdate
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.util.asJsoup
@@ -71,18 +72,18 @@ abstract class Animejl : AniSource(), ConfigurableAnimeSource {
     // Popular
     // ---------------------------------------------
 
-    override suspend fun getPopularAnime(page: Int): eu.kanade.tachiyomi.animesource.model.AnimesPage {
+    override suspend fun getPopularAnime(page: Int): AnimesPage {
         val response = client.get("$baseUrl/animes?order=rating&page=$page", headers)
         return parsePopularAnimeResponse(response)
     }
 
-    private fun parsePopularAnimeResponse(response: Response): eu.kanade.tachiyomi.animesource.model.AnimesPage {
+    private fun parsePopularAnimeResponse(response: Response): AnimesPage {
         val document = response.asJsoup()
         val animes = document.select(POPULAR_ANIME_SELECTOR).mapNotNull { element ->
             runCatching { popularAnimeFromElement(element) }.getOrNull()
         }
         val hasNextPage = document.selectFirst(NEXT_PAGE_SELECTOR) != null
-        return eu.kanade.tachiyomi.animesource.model.AnimesPage(animes, hasNextPage)
+        return AnimesPage(animes, hasNextPage)
     }
 
     private fun popularAnimeFromElement(element: Element): SAnime {
@@ -100,7 +101,7 @@ abstract class Animejl : AniSource(), ConfigurableAnimeSource {
     // Latest
     // ---------------------------------------------
 
-    override suspend fun getLatestUpdates(page: Int): eu.kanade.tachiyomi.animesource.model.AnimesPage {
+    override suspend fun getLatestUpdates(page: Int): AnimesPage {
         val response = client.get("$baseUrl/animes?order=updated&page=$page", headers)
         return parsePopularAnimeResponse(response)
     }
@@ -109,7 +110,7 @@ abstract class Animejl : AniSource(), ConfigurableAnimeSource {
     // Search
     // ---------------------------------------------
 
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): eu.kanade.tachiyomi.animesource.model.AnimesPage {
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
         val params = Filters.getSearchParameters(filters)
         val url = when {
             query.isNotBlank() -> "$baseUrl/animes?q=$query&page=$page"
@@ -183,7 +184,7 @@ abstract class Animejl : AniSource(), ConfigurableAnimeSource {
                     name = "Episodio $episodeNumber"
                 }
             }.getOrNull()
-        }.toList().sortedByDescending { it.episode_number } // .toList() added to fix Sequence mismatch
+        }.toList().sortedByDescending { it.episode_number }
     }
 
     // ---------------------------------------------
@@ -195,10 +196,10 @@ abstract class Animejl : AniSource(), ConfigurableAnimeSource {
         episodes: List<SEpisode>,
         fetchDetails: Boolean,
         fetchEpisodes: Boolean,
-    ): AnimeUpdate { // Fixed: SAnimeUpdate -> AnimeUpdate
+    ): SAnimeUpdate { // CORREGIDO: SAnimeUpdate es la clase correcta según CONTRIBUTING.md
         val updatedAnime = if (fetchDetails) fetchAnimeDetails(anime) else anime
         val updatedEpisodes = if (fetchEpisodes) fetchEpisodes(anime) else episodes
-        return AnimeUpdate(anime = updatedAnime, episodes = updatedEpisodes) // Fixed constructor
+        return SAnimeUpdate(anime = updatedAnime, episodes = updatedEpisodes)
     }
 
     // ---------------------------------------------
@@ -215,8 +216,12 @@ abstract class Animejl : AniSource(), ConfigurableAnimeSource {
             runCatching {
                 val url = match.groupValues[1]
                 val serverName = extractServerName(url)
-                // Fixed: Hoster parameter is 'name', not 'hosterName'
-                Hoster(name = serverName, url = url, internalData = url)
+                // CORREGIDO: Los parámetros son hosterUrl, hosterName e internalData (como en MonosChinos)
+                Hoster(
+                    hosterUrl = url,
+                    hosterName = serverName,
+                    internalData = url
+                )
             }.getOrNull()
         }.toList()
     }
@@ -238,9 +243,11 @@ abstract class Animejl : AniSource(), ConfigurableAnimeSource {
     // ---------------------------------------------
 
     override suspend fun fetchVideoList(hoster: Hoster): List<Video> {
-        // Fixed: Explicit typing to prevent List<Any> inference
-        val targetUrl = (hoster.internalData as? String) ?: hoster.url
+        // CORREGIDO: Usar hoster.hosterUrl en lugar de hoster.url
+        val targetUrl = hoster.hosterUrl
         
+        // CORREGIDO: Envolver en runCatching y asegurar que TODAS las ramas devuelvan List<Video>
+        // para evitar la inferencia de List<Any>
         return runCatching {
             when {
                 targetUrl.contains("streamtape") -> listOfNotNull(streamTapeExtractor.videoFromUrl(targetUrl))
@@ -262,7 +269,8 @@ abstract class Animejl : AniSource(), ConfigurableAnimeSource {
 
     override fun List<Hoster>.sortHosters(): List<Hoster> {
         val server = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)!!
-        return sortedWith(compareBy { !it.name.contains(server, ignoreCase = true) })
+        // CORREGIDO: Usar hoster.hosterName en lugar de hoster.name
+        return sortedWith(compareBy { !it.hosterName.contains(server, ignoreCase = true) })
     }
 
     override fun List<Video>.sortVideos(): List<Video> {
@@ -289,6 +297,7 @@ abstract class Animejl : AniSource(), ConfigurableAnimeSource {
             entryValues = SERVER_LIST
             setDefaultValue(PREF_SERVER_DEFAULT)
             summary = "%s"
+            // CORREGIDO: Eliminado setOnPreferenceChangeListener (el framework lo guarda automáticamente)
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
