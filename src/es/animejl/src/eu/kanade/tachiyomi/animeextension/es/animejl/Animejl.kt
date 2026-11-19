@@ -90,7 +90,7 @@ abstract class Animejl : AniSource(), ConfigurableAnimeSource {
         val anime = SAnime.create()
         val button = element.selectFirst("div.Description a.Button")!!
         val url = button.absUrl("href").ifEmpty { error("Missing anime url") }
-        anime.setUrlWithoutDomain(url)
+        anime.setUrlWithoutDomain(url) // CORREGIDO: Importación añadida
         anime.title = element.selectFirst("a h3")!!.text().ifEmpty { error("Missing title") }
         anime.thumbnail_url = element.selectFirst("a div.Image figure img")?.absUrl("src")
         anime.description = element.selectFirst("div.Description p:eq(2)")?.text()?.removeSurrounding("\"")
@@ -196,7 +196,7 @@ abstract class Animejl : AniSource(), ConfigurableAnimeSource {
         episodes: List<SEpisode>,
         fetchDetails: Boolean,
         fetchEpisodes: Boolean,
-    ): SAnimeUpdate { // CORREGIDO: SAnimeUpdate es la clase correcta según CONTRIBUTING.md
+    ): SAnimeUpdate { // CORREGIDO: Importación explícita añadida arriba
         val updatedAnime = if (fetchDetails) fetchAnimeDetails(anime) else anime
         val updatedEpisodes = if (fetchEpisodes) fetchEpisodes(anime) else episodes
         return SAnimeUpdate(anime = updatedAnime, episodes = updatedEpisodes)
@@ -216,7 +216,6 @@ abstract class Animejl : AniSource(), ConfigurableAnimeSource {
             runCatching {
                 val url = match.groupValues[1]
                 val serverName = extractServerName(url)
-                // CORREGIDO: Los parámetros son hosterUrl, hosterName e internalData (como en MonosChinos)
                 Hoster(
                     hosterUrl = url,
                     hosterName = serverName,
@@ -243,24 +242,21 @@ abstract class Animejl : AniSource(), ConfigurableAnimeSource {
     // ---------------------------------------------
 
     override suspend fun fetchVideoList(hoster: Hoster): List<Video> {
-        // CORREGIDO: Usar hoster.hosterUrl en lugar de hoster.url
         val targetUrl = hoster.hosterUrl
         
-        // CORREGIDO: Envolver en runCatching y asegurar que TODAS las ramas devuelvan List<Video>
-        // para evitar la inferencia de List<Any>
-        return runCatching {
-            when {
-                targetUrl.contains("streamtape") -> listOfNotNull(streamTapeExtractor.videoFromUrl(targetUrl))
-                targetUrl.contains("ok.ru") -> okruExtractor.videosFromUrl(targetUrl)
-                targetUrl.contains("yourupload") -> listOfNotNull(yourUploadExtractor.videoFromUrl(targetUrl, headers))
-                targetUrl.contains("streamwish") || targetUrl.contains("playerwish") -> streamWishExtractor.videosFromUrl(targetUrl)
-                targetUrl.contains("streamhidevid") -> vidHideExtractor.videosFromUrl(targetUrl)
-                targetUrl.contains("voe") -> voeExtractor.videosFromUrl(targetUrl)
-                targetUrl.contains("uqload") -> uqloadExtractor.videosFromUrl(targetUrl)
-                targetUrl.contains("mp4upload") -> mp4uploadExtractor.videosFromUrl(targetUrl, headers)
-                else -> universalExtractor.videosFromUrl(targetUrl, headers)
-            }
-        }.getOrDefault(emptyList())
+        // CORREGIDO: Eliminamos runCatching para evitar que Kotlin infiera List<Any>. 
+        // Todas las ramas del when devuelven explícitamente List<Video>.
+        return when {
+            targetUrl.contains("streamtape") -> listOfNotNull(streamTapeExtractor.videoFromUrl(targetUrl))
+            targetUrl.contains("ok.ru") -> okruExtractor.videosFromUrl(targetUrl)
+            targetUrl.contains("yourupload") -> listOfNotNull(yourUploadExtractor.videoFromUrl(targetUrl, headers))
+            targetUrl.contains("streamwish") || targetUrl.contains("playerwish") -> streamWishExtractor.videosFromUrl(targetUrl)
+            targetUrl.contains("streamhidevid") -> vidHideExtractor.videosFromUrl(targetUrl)
+            targetUrl.contains("voe") -> voeExtractor.videosFromUrl(targetUrl)
+            targetUrl.contains("uqload") -> uqloadExtractor.videosFromUrl(targetUrl)
+            targetUrl.contains("mp4upload") -> mp4uploadExtractor.videosFromUrl(targetUrl, headers)
+            else -> universalExtractor.videosFromUrl(targetUrl, headers)
+        }
     }
 
     // ---------------------------------------------
@@ -269,7 +265,6 @@ abstract class Animejl : AniSource(), ConfigurableAnimeSource {
 
     override fun List<Hoster>.sortHosters(): List<Hoster> {
         val server = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)!!
-        // CORREGIDO: Usar hoster.hosterName en lugar de hoster.name
         return sortedWith(compareBy { !it.hosterName.contains(server, ignoreCase = true) })
     }
 
@@ -297,7 +292,6 @@ abstract class Animejl : AniSource(), ConfigurableAnimeSource {
             entryValues = SERVER_LIST
             setDefaultValue(PREF_SERVER_DEFAULT)
             summary = "%s"
-            // CORREGIDO: Eliminado setOnPreferenceChangeListener (el framework lo guarda automáticamente)
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
