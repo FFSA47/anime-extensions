@@ -13,10 +13,9 @@ import aniyomi.lib.voeextractor.VoeExtractor
 import aniyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
-import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.AnimeUpdate
 import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
-import eu.kanade.tachiyomi.animesource.model.SAnimeUpdate
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.util.asJsoup
@@ -58,8 +57,8 @@ abstract class Animejl : AniSource(), ConfigurableAnimeSource {
             "StreamHideVid", "Voe", "Uqload", "Mp4upload",
         )
 
-        private val POPULAR_ANIME_SELECTOR = "div.Container ul.ListAnimes li article"
-        private val NEXT_PAGE_SELECTOR = "ul.pagination li a[rel=\"next\"]"
+        private const val POPULAR_ANIME_SELECTOR = "div.Container ul.ListAnimes li article"
+        private const val NEXT_PAGE_SELECTOR = "ul.pagination li a[rel=\"next\"]"
 
         private val EPISODES_PATTERN = Regex("var episodes = (\\[.*?]);", RegexOption.DOT_MATCHES_ALL)
         private val ANIME_INFO_PATTERN = Regex("var anime_info = \\[(.*?)];")
@@ -72,18 +71,18 @@ abstract class Animejl : AniSource(), ConfigurableAnimeSource {
     // Popular
     // ---------------------------------------------
 
-    override suspend fun getPopularAnime(page: Int): AnimesPage {
+    override suspend fun getPopularAnime(page: Int): eu.kanade.tachiyomi.animesource.model.AnimesPage {
         val response = client.get("$baseUrl/animes?order=rating&page=$page", headers)
-        return popularAnimeParse(response)
+        return parsePopularAnimeResponse(response)
     }
 
-    private fun popularAnimeParse(response: Response): AnimesPage {
+    private fun parsePopularAnimeResponse(response: Response): eu.kanade.tachiyomi.animesource.model.AnimesPage {
         val document = response.asJsoup()
         val animes = document.select(POPULAR_ANIME_SELECTOR).mapNotNull { element ->
             runCatching { popularAnimeFromElement(element) }.getOrNull()
         }
         val hasNextPage = document.selectFirst(NEXT_PAGE_SELECTOR) != null
-        return AnimesPage(animes, hasNextPage)
+        return eu.kanade.tachiyomi.animesource.model.AnimesPage(animes, hasNextPage)
     }
 
     private fun popularAnimeFromElement(element: Element): SAnime {
@@ -101,16 +100,16 @@ abstract class Animejl : AniSource(), ConfigurableAnimeSource {
     // Latest
     // ---------------------------------------------
 
-    override suspend fun getLatestUpdates(page: Int): AnimesPage {
+    override suspend fun getLatestUpdates(page: Int): eu.kanade.tachiyomi.animesource.model.AnimesPage {
         val response = client.get("$baseUrl/animes?order=updated&page=$page", headers)
-        return popularAnimeParse(response)
+        return parsePopularAnimeResponse(response)
     }
 
     // ---------------------------------------------
     // Search
     // ---------------------------------------------
 
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): eu.kanade.tachiyomi.animesource.model.AnimesPage {
         val params = Filters.getSearchParameters(filters)
         val url = when {
             query.isNotBlank() -> "$baseUrl/animes?q=$query&page=$page"
@@ -118,7 +117,7 @@ abstract class Animejl : AniSource(), ConfigurableAnimeSource {
             else -> "$baseUrl/animes?order=rating&page=$page"
         }
         val response = client.get(url, headers)
-        return popularAnimeParse(response)
+        return parsePopularAnimeResponse(response)
     }
 
     override fun getFilterList(): AnimeFilterList = Filters.FILTER_LIST
@@ -184,7 +183,7 @@ abstract class Animejl : AniSource(), ConfigurableAnimeSource {
                     name = "Episodio $episodeNumber"
                 }
             }.getOrNull()
-        }.sortedByDescending { it.episode_number }
+        }.toList().sortedByDescending { it.episode_number } // .toList() added to fix Sequence mismatch
     }
 
     // ---------------------------------------------
@@ -196,10 +195,10 @@ abstract class Animejl : AniSource(), ConfigurableAnimeSource {
         episodes: List<SEpisode>,
         fetchDetails: Boolean,
         fetchEpisodes: Boolean,
-    ): SAnimeUpdate {
+    ): AnimeUpdate { // Fixed: SAnimeUpdate -> AnimeUpdate
         val updatedAnime = if (fetchDetails) fetchAnimeDetails(anime) else anime
         val updatedEpisodes = if (fetchEpisodes) fetchEpisodes(anime) else episodes
-        return SAnimeUpdate(anime = updatedAnime, episodes = updatedEpisodes)
+        return AnimeUpdate(anime = updatedAnime, episodes = updatedEpisodes) // Fixed constructor
     }
 
     // ---------------------------------------------
@@ -216,7 +215,8 @@ abstract class Animejl : AniSource(), ConfigurableAnimeSource {
             runCatching {
                 val url = match.groupValues[1]
                 val serverName = extractServerName(url)
-                Hoster(url = url, hosterName = serverName, internalData = url)
+                // Fixed: Hoster parameter is 'name', not 'hosterName'
+                Hoster(name = serverName, url = url, internalData = url)
             }.getOrNull()
         }.toList()
     }
@@ -238,23 +238,22 @@ abstract class Animejl : AniSource(), ConfigurableAnimeSource {
     // ---------------------------------------------
 
     override suspend fun fetchVideoList(hoster: Hoster): List<Video> {
-        val url = hoster.internalData as? String ?: hoster.url
-        return buildList {
-            runCatching {
-                val videos = when {
-                    url.contains("streamtape") -> listOfNotNull(streamTapeExtractor.videoFromUrl(url))
-                    url.contains("ok.ru") -> okruExtractor.videosFromUrl(url)
-                    url.contains("yourupload") -> listOfNotNull(yourUploadExtractor.videoFromUrl(url, headers))
-                    url.contains("streamwish") || url.contains("playerwish") -> streamWishExtractor.videosFromUrl(url)
-                    url.contains("streamhidevid") -> vidHideExtractor.videosFromUrl(url)
-                    url.contains("voe") -> voeExtractor.videosFromUrl(url)
-                    url.contains("uqload") -> uqloadExtractor.videosFromUrl(url)
-                    url.contains("mp4upload") -> mp4uploadExtractor.videosFromUrl(url, headers)
-                    else -> universalExtractor.videosFromUrl(url, headers)
-                }
-                addAll(videos)
+        // Fixed: Explicit typing to prevent List<Any> inference
+        val targetUrl = (hoster.internalData as? String) ?: hoster.url
+        
+        return runCatching {
+            when {
+                targetUrl.contains("streamtape") -> listOfNotNull(streamTapeExtractor.videoFromUrl(targetUrl))
+                targetUrl.contains("ok.ru") -> okruExtractor.videosFromUrl(targetUrl)
+                targetUrl.contains("yourupload") -> listOfNotNull(yourUploadExtractor.videoFromUrl(targetUrl, headers))
+                targetUrl.contains("streamwish") || targetUrl.contains("playerwish") -> streamWishExtractor.videosFromUrl(targetUrl)
+                targetUrl.contains("streamhidevid") -> vidHideExtractor.videosFromUrl(targetUrl)
+                targetUrl.contains("voe") -> voeExtractor.videosFromUrl(targetUrl)
+                targetUrl.contains("uqload") -> uqloadExtractor.videosFromUrl(targetUrl)
+                targetUrl.contains("mp4upload") -> mp4uploadExtractor.videosFromUrl(targetUrl, headers)
+                else -> universalExtractor.videosFromUrl(targetUrl, headers)
             }
-        }
+        }.getOrDefault(emptyList())
     }
 
     // ---------------------------------------------
@@ -263,7 +262,7 @@ abstract class Animejl : AniSource(), ConfigurableAnimeSource {
 
     override fun List<Hoster>.sortHosters(): List<Hoster> {
         val server = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)!!
-        return sortedWith(compareBy { !it.hosterName.contains(server, ignoreCase = true) })
+        return sortedWith(compareBy { !it.name.contains(server, ignoreCase = true) })
     }
 
     override fun List<Video>.sortVideos(): List<Video> {
