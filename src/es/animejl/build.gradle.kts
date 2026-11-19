@@ -8,7 +8,7 @@ yuzono {
     name = "Animejl"
     versionCode = 25
     contentWarning = ContentWarning.NSFW
-    libVersion = "16"
+    libVersion = "14"
 
     source {
         lang = "es"
