@@ -33,7 +33,7 @@ object Filters {
     internal fun getSearchParameters(filters: AnimeFilterList): FilterSearchParams {
         if (filters.isEmpty()) return FilterSearchParams()
         return FilterSearchParams(
-            // `genero[]` is a repeated key; the raw string is only used for the isNotBlank() check.
+
             genres(filters).joinToString("") { "&genero[]=$it" } +
                 filters.firstInstance<CategoryFilter>().toQueryPart("categoria") +
                 filters.firstInstance<YearFilter>().toQueryPart("fecha") +
@@ -41,10 +41,6 @@ object Filters {
         )
     }
 
-    /**
-     * Applies the selected filters directly to an [HttpUrl.Builder] so values
-     * such as `genero[]` (which contain `[` / `]`) are properly encoded.
-     */
     internal fun applyTo(builder: HttpUrl.Builder, filters: AnimeFilterList) {
         genres(filters).forEach { builder.addQueryParameter("genero[]", it) }
         filters.firstInstance<CategoryFilter>().applyTo(builder, "categoria")
@@ -82,7 +78,7 @@ object Filters {
     class LetterFilter : QueryPartFilter("Letra", FiltersData.LETTERS)
 
     private object FiltersData {
-        // Taken from filtros.html: name="categoria"
+
         val CATEGORIES = arrayOf(
             Pair("Todos", ""),
             Pair("Anime", "anime"),
@@ -98,14 +94,12 @@ object Filters {
             Pair("Audio Japonés", "audio-japones"),
         )
 
-        // Taken from filtros.html: name="fecha", from current year (or 2026) down to 1982.
         val YEARS: Array<Pair<String, String>> = buildList {
             add("Todos" to "")
             val maxYear = Calendar.getInstance().get(Calendar.YEAR).coerceAtLeast(2026)
             for (year in maxYear downTo 1982) add(year.toString() to year.toString())
         }.toTypedArray()
 
-        // Taken from filtros.html: name="letra" (the `#` uses value="09").
         val LETTERS = arrayOf(
             Pair("Todas", ""),
             Pair("#", "09"),
@@ -118,7 +112,6 @@ object Filters {
             Pair("Y", "Y"), Pair("Z", "Z"),
         )
 
-        // Taken from filtros.html: name="genero[]", in the order the site renders them.
         val GENRES = arrayOf(
             Pair("Acción", "accion"),
             Pair("Aventura", "aventura"),
