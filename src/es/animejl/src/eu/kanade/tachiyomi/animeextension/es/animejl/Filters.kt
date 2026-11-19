@@ -3,7 +3,6 @@ package eu.kanade.tachiyomi.animeextension.es.animejl
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import java.util.Calendar
-import keiyoushi.utils.firstInstance
 
 object Filters {
     open class QueryPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
@@ -14,24 +13,35 @@ object Filters {
         fun toQueryPart(name: String) = vals[state].second.takeIf { it.isNotEmpty() }?.let { "&$name=${vals[state].second}" } ?: ""
     }
 
-    open class CheckBoxFilterList(name: String, values: List<CheckBox>) :
-        AnimeFilter.Group<AnimeFilter.CheckBox>(name, values)
+    open class CheckBoxFilterList(name: String, values: List<CheckBox>) : AnimeFilter.Group<AnimeFilter.CheckBox>(name, values)
 
-    private class CheckBoxVal(name: String, state: Boolean = false) :
-        AnimeFilter.CheckBox(name, state)
+    private class CheckBoxVal(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
 
     private inline fun <reified R> AnimeFilterList.parseCheckbox(
         options: Array<Pair<String, String>>,
         name: String,
-    ): String = (firstInstance<R>() as CheckBoxFilterList).state
-        .filter { it.state }
-        .mapNotNull { checkbox -> options.find { it.first == checkbox.name }?.second }
-        .joinToString("&$name[]=")
-        .let { if (it.isBlank()) "" else "&$name[]=$it" }
+    ): String = (this.getFirst<R>() as CheckBoxFilterList).state
+        .mapNotNull { checkbox ->
+            if (checkbox.state) {
+                options.find { it.first == checkbox.name }!!.second
+            } else {
+                null
+            }
+        }.joinToString("&$name[]=").let {
+            if (it.isBlank()) {
+                ""
+            } else {
+                "&$name[]=$it"
+            }
+        }
 
-    private inline fun <reified R> AnimeFilterList.asQueryPart(name: String): String = (firstInstance<R>() as QueryPartFilter).toQueryPart(name)
+    private inline fun <reified R> AnimeFilterList.asQueryPart(name: String): String =
+        (this.getFirst<R>() as QueryPartFilter).toQueryPart(name)
 
-    private fun String.changePrefix() = takeIf { it.startsWith("&") }?.let { replaceFirst("&", "?") } ?: this
+    private inline fun <reified R> AnimeFilterList.getFirst(): R = this.filterIsInstance<R>().first()
+
+    private fun String.changePrefix() =
+        this.takeIf { it.startsWith("&") }?.replaceFirst("&", "?") ?: this
 
     data class FilterSearchParams(val filter: String = "") {
         fun getQuery() = filter.changePrefix()
@@ -57,32 +67,25 @@ object Filters {
         SortFilter(),
     )
 
-    class GenresFilter : CheckBoxFilterList("Género", FiltersData.GENRES.map { CheckBoxVal(it.first) })
-
-    class YearsFilter : CheckBoxFilterList("Año", FiltersData.YEARS.map { CheckBoxVal(it.first) })
-
-    class TypesFilter : CheckBoxFilterList("Tipo", FiltersData.TYPES.map { CheckBoxVal(it.first) })
-
-    class StateFilter : CheckBoxFilterList("Estado", FiltersData.STATE.map { CheckBoxVal(it.first) })
-
+    class GenresFilter : CheckBoxFilterList("Género", FiltersData.GENRES.map { CheckBoxVal(it.first, false) })
+    class YearsFilter : CheckBoxFilterList("Año", FiltersData.YEARS.map { CheckBoxVal(it.first, false) })
+    class TypesFilter : CheckBoxFilterList("Tipo", FiltersData.TYPES.map { CheckBoxVal(it.first, false) })
+    class StateFilter : CheckBoxFilterList("Estado", FiltersData.STATE.map { CheckBoxVal(it.first, false) })
     class SortFilter : QueryPartFilter("Orden", FiltersData.SORT)
 
     private object FiltersData {
         val YEARS = (1990..Calendar.getInstance().get(Calendar.YEAR)).map { Pair("$it", "$it") }.reversed().toTypedArray()
-
         val TYPES = arrayOf(
             Pair("Anime", "1"),
             Pair("Ova", "2"),
             Pair("Pelicula", "3"),
             Pair("Donghua", "7"),
         )
-
         val STATE = arrayOf(
             Pair("En emisión", "0"),
             Pair("Finalizado", "1"),
             Pair("Próximamente", "2"),
         )
-
         val SORT = arrayOf(
             Pair("Por Defecto", "created"),
             Pair("Recientemente Actualizados", "updated"),
@@ -91,7 +94,6 @@ object Filters {
             Pair("Calificación", "rating"),
             Pair("Vistas", "views"),
         )
-
         val GENRES = arrayOf(
             Pair("Acción", "1"),
             Pair("Artes Marciales", "2"),
