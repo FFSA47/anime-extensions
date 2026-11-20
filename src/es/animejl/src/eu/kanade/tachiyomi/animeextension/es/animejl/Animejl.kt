@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.animeextension.es.animejl
 
-import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import aniyomi.lib.okruextractor.OkruExtractor
@@ -18,149 +17,39 @@ import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.annotation.Source
-import keiyoushi.utils.catchingFlatMapBlocking
+import keiyoushi.network.get
+import keiyoushi.source.AniSource
+import keiyoushi.source.model.SAnimeUpdate
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.get
 import keiyoushi.utils.getPreferencesLazy
-import okhttp3.Request
-import okhttp3.Response
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.string
+import keiyoushi.utils.stringOrNull
+import keiyoushi.utils.tryParse
+import kotlinx.serialization.json.JsonArray
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import org.jsoup.Jsoup
+import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 @Source
 @OptIn(keiyoushi.annotation.AnimiruOnly::class)
-abstract class Animejl : AnimeHttpSource(), ConfigurableAnimeSource {
+abstract class Animejl :
+    AniSource(),
+    ConfigurableAnimeSource {
 
     override val supportsLatest = true
+
     private val preferences by getPreferencesLazy()
 
-    companion object {
-        private const val PREF_QUALITY_KEY = "preferred_quality"
-        private const val PREF_QUALITY_DEFAULT = "720"
-        private val QUALITY_LIST = arrayOf("1080", "720", "480", "360")
+    private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT)
 
-        private const val PREF_SERVER_KEY = "preferred_server"
-        private const val PREF_SERVER_DEFAULT = "StreamWish"
-        private val SERVER_LIST = arrayOf(
-            "StreamWish", "YourUpload", "Okru", "StreamTape",
-            "StreamHideVid", "Voe", "Uqload", "Mp4upload",
-        )
-    }
-
-    /*--------------------------------Popular------------------------------------*/
-    override fun popularAnimeRequest(page: Int): Request =
-        GET("$baseUrl/animes?order=rating&page=$page")
-
-    override fun popularAnimeParse(response: Response): AnimesPage = animesPageParse(response)
-
-    /*--------------------------------Latest-------------------------------------*/
-    override fun latestUpdatesRequest(page: Int): Request =
-        GET("$baseUrl/animes?order=updated&page=$page")
-
-    override fun latestUpdatesParse(response: Response): AnimesPage = animesPageParse(response)
-
-    /*--------------------------------Search-------------------------------------*/
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        val params = Filters.getSearchParameters(filters)
-        return when {
-            query.isNotBlank() -> GET("$baseUrl/animes?q=$query&page=$page")
-            params.filter.isNotBlank() -> GET("$baseUrl/animes${params.getQuery()}&page=$page")
-            else -> popularAnimeRequest(page)
-        }
-    }
-
-    override fun searchAnimeParse(response: Response): AnimesPage = animesPageParse(response)
-
-    /*--------------------------------Helpers------------------------------------*/
-    private fun animesPageParse(response: Response): AnimesPage {
-        val document = response.asJsoup()
-        val animes = document.select("div.Container ul.ListAnimes li article")
-            .map { popularAnimeFromElement(it) }
-        val hasNextPage = document.selectFirst("ul.pagination li a[rel=\"next\"]") != null
-        return AnimesPage(animes, hasNextPage)
-    }
-
-    private fun popularAnimeFromElement(element: Element): SAnime {
-        val anime = SAnime.create()
-        anime.setUrlWithoutDomain(
-            element.select("div.Description a.Button").attr("abs:href"),
-        )
-        anime.title = element.select("a h3").text()
-        anime.thumbnail_url = element.select("a div.Image figure img")
-            .attr("src")
-            .replace("/storage", "$baseUrl/storage")
-        anime.description = element.select("div.Description p:eq(2)")
-            .text()
-            .removeSurrounding("\"")
-        return anime
-    }
-
-    /*--------------------------------Details------------------------------------*/
-    override fun animeDetailsParse(response: Response): SAnime {
-        val document = response.asJsoup()
-        val anime = SAnime.create()
-        anime.thumbnail_url = document.selectFirst("div.AnimeCover div.Image figure img")!!
-            .attr("abs:src")
-        anime.title = document.selectFirst("div.Ficha.fchlt div.Container .Title")!!.text()
-        anime.description = document.selectFirst("div.Description")!!
-            .text()
-            .removeSurrounding("\"")
-        anime.genre = document.select("nav.Nvgnrs a").joinToString { it.text() }
-        anime.status = parseStatus(document.select("span.fa-tv").text())
-        return anime
-    }
-
-    private fun parseStatus(statusString: String): Int = when {
-        statusString.contains("En emision") -> SAnime.ONGOING
-        statusString.contains("Finalizado") -> SAnime.COMPLETED
-        else -> SAnime.UNKNOWN
-    }
-
-    /*--------------------------------Seasons (lib16)----------------------------*/
-    // AnimeJL no separa por temporadas.
-    override fun seasonListParse(response: Response): List<SAnime> = emptyList()
-
-    /*--------------------------------Episodes-----------------------------------*/
-    override fun episodeListParse(response: Response): List<SEpisode> {
-        val document = response.asJsoup()
-        val episodeList = mutableListOf<SEpisode>()
-        val script = document.select("script:containsData(var episodes =)")
-            .firstOrNull()?.data() ?: return emptyList()
-        val episodesPattern = Regex("var episodes = (\\[.*?]);", RegexOption.DOT_MATCHES_ALL)
-        val episodesMatch = episodesPattern.find(script) ?: return emptyList()
-        val episodesString = episodesMatch.groupValues[1]
-        val animeInfoPattern = Regex("var anime_info = \\[(.*?)];")
-        val animeInfoMatch = animeInfoPattern.find(script) ?: return emptyList()
-        val animeInfo = animeInfoMatch.groupValues[1].split(",").map { it.trim('"') }
-        val animeSlug = animeInfo.getOrNull(2) ?: ""
-        val animeId = animeInfo.getOrNull(0) ?: ""
-        val episodePattern = Regex("\\[(\\d+),\"(.*?)\",\"(.*?)\",\"(.*?)\"]")
-        episodePattern.findAll(episodesString).forEach { match ->
-            val episodeNumber = match.groupValues[1].toIntOrNull() ?: return@forEach
-            val episode = SEpisode.create()
-            episode.setUrlWithoutDomain("$baseUrl/anime/$animeId/$animeSlug/episodio-$episodeNumber")
-            episode.episode_number = episodeNumber.toFloat()
-            episode.name = "Episodio $episodeNumber"
-            episodeList.add(episode)
-        }
-        return episodeList.sortedByDescending { it.episode_number }
-    }
-
-    /*--------------------------------Hosters (lib16)----------------------------*/
-    // ✅ Hoster con hosterUrl válida para que el host realice la petición de video.
-    override fun hosterListParse(response: Response): List<Hoster> {
-        val episodeUrl = response.request.url.toString()
-        return listOf(
-            Hoster(
-                hosterUrl = episodeUrl,
-                hosterName = "AnimeJL",
-                lazy = true,
-            ),
-        )
-    }
-
-    /*--------------------------------Video extractors------------------------------------*/
     private val streamTapeExtractor by lazy { StreamTapeExtractor(client) }
     private val okruExtractor by lazy { OkruExtractor(client) }
     private val yourUploadExtractor by lazy { YourUploadExtractor(client) }
@@ -171,88 +60,201 @@ abstract class Animejl : AnimeHttpSource(), ConfigurableAnimeSource {
     private val uqloadExtractor by lazy { UqloadExtractor(client) }
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
 
-    // ✅ Firma de lib16: recibe el Hoster seleccionado
-    override fun videoListParse(response: Response, hoster: Hoster): List<Video> {
-        val document = response.asJsoup()
-        val scriptContent = document.selectFirst("script:containsData(var video = [)")?.data()
+    override suspend fun getPopularAnime(page: Int): AnimesPage =
+        client.get("$baseUrl/animes?order=rating&page=$page").use { it.asJsoup().toAnimesPage() }
+
+    override suspend fun getLatestUpdates(page: Int): AnimesPage =
+        client.get("$baseUrl/animes?order=updated&page=$page").use { it.asJsoup().toAnimesPage() }
+
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        val params = Filters.getSearchParameters(filters)
+        val url = baseUrl.toHttpUrl().newBuilder().addPathSegment("animes")
+
+        when {
+            query.isNotBlank() -> url.addQueryParameter("q", query)
+            params.filter.isNotEmpty() -> url.encodedQuery(params.getQuery().removePrefix("?"))
+            else -> url.addQueryParameter("order", "rating")
+        }
+
+        return client.get(url.addQueryParameter("page", page.toString()).build())
+            .use { it.asJsoup().toAnimesPage() }
+    }
+
+    override fun getFilterList(): AnimeFilterList = Filters.FILTER_LIST
+
+    // Details and episodes share the same page, so it is fetched only once
+    override suspend fun fetchAnimeUpdate(
+        anime: SAnime,
+        episodes: List<SEpisode>,
+        fetchDetails: Boolean,
+        fetchEpisodes: Boolean,
+    ): SAnimeUpdate {
+        if (!fetchDetails && !fetchEpisodes) return SAnimeUpdate(anime = anime, episodes = episodes)
+
+        val document = client.get("$baseUrl${anime.url}").use { it.asJsoup() }
+        return SAnimeUpdate(
+            anime = if (fetchDetails) parseDetails(document, anime) else anime,
+            episodes = if (fetchEpisodes) parseEpisodes(document) else episodes,
+        )
+    }
+
+    override suspend fun fetchHosterList(episode: SEpisode): List<Hoster> {
+        val script = client.get("$baseUrl${episode.url}").use { it.asJsoup() }
+            .selectFirst("script:containsData(var video =)")?.data()
             ?: return emptyList()
-        val videoPattern = Regex("""video\[\d+] = '([^']+)'""")
-        return videoPattern.findAll(scriptContent).toList().catchingFlatMapBlocking { match ->
-            val rawValue = match.groupValues[1]
 
-            // El sitio envuelve cada video en <iframe src="…">; extraer la URL real
-            val url = if (rawValue.trimStart().startsWith("<iframe", ignoreCase = true)) {
-                Regex("""src=["']([^"']+)["']""").find(rawValue)?.groupValues?.get(1)
-                    ?: return@catchingFlatMapBlocking emptyList<Video>()
+        return VIDEO_REGEX.findAll(script).mapNotNull { match ->
+            val raw = match.groupValues[1].trim()
+            // Each server is wrapped in an <iframe src="…">
+            val url = if (raw.startsWith("<iframe", ignoreCase = true)) {
+                Jsoup.parseBodyFragment(raw, baseUrl).selectFirst("iframe")?.absUrl("src")
             } else {
-                rawValue
+                raw
             }
-
-            if (url.isBlank()) return@catchingFlatMapBlocking emptyList<Video>()
-
             when {
-                url.contains("streamtape") -> listOfNotNull(streamTapeExtractor.videoFromUrl(url))
-                url.contains("ok.ru") -> okruExtractor.videosFromUrl(url)
-                url.contains("yourupload") -> yourUploadExtractor.videoFromUrl(url, headers)
-                url.contains("streamwish") ||
-                    url.contains("playerwish") ||
-                    url.contains("bysezoxexe") -> streamWishExtractor.videosFromUrl(url)
-                url.contains("streamhidevid") || url.contains("vidhide") ->
-                    vidHideExtractor.videosFromUrl(url)
-                url.contains("voe") -> voeExtractor.videosFromUrl(url)
-                url.contains("uqload") -> uqloadExtractor.videosFromUrl(url)
-                url.contains("mp4upload") -> mp4uploadExtractor.videosFromUrl(url, headers)
-                else -> universalExtractor.videosFromUrl(url, headers)
+                url.isNullOrEmpty() -> null
+                url.startsWith("//") -> "https:$url"
+                else -> url
             }
+        }.distinct().map { url ->
+            Hoster(hosterUrl = url, hosterName = serverLabel(url))
+        }.toList()
+    }
+
+    override suspend fun fetchVideoList(hoster: Hoster): List<Video> {
+        val url = hoster.hosterUrl
+        return when (hoster.hosterName) {
+            "StreamTape" -> listOfNotNull(streamTapeExtractor.videoFromUrl(url))
+            "Okru" -> okruExtractor.videosFromUrl(url)
+            "YourUpload" -> yourUploadExtractor.videoFromUrl(url, headers)
+            "StreamWish" -> streamWishExtractor.videosFromUrl(url)
+            "VidHide" -> vidHideExtractor.videosFromUrl(url)
+            "Voe" -> voeExtractor.videosFromUrl(url)
+            "Uqload" -> uqloadExtractor.videosFromUrl(url)
+            "Mp4upload" -> mp4uploadExtractor.videosFromUrl(url, headers)
+            else -> universalExtractor.videosFromUrl(url, headers)
         }.distinctBy { it.videoUrl }
     }
 
-    /*--------------------------------Filters------------------------------------*/
-    override fun getFilterList(): AnimeFilterList = Filters.FILTER_LIST
+    override fun List<Hoster>.sortHosters(): List<Hoster> {
+        val server = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)!!
+        return sortedByDescending { it.hosterName == server }
+    }
 
-    /*--------------------------------Sorting------------------------------------*/
     override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
-        val server = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)!!
-        return this.sortedWith(
+        return sortedWith(
             compareBy(
-                { it.videoTitle.contains(server, true) },
                 { it.videoTitle.contains(quality) },
-                { Regex("""(\d+)p""").find(it.videoTitle)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
+                { RESOLUTION_REGEX.find(it.videoTitle)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
             ),
         ).reversed()
     }
 
-    /*--------------------------------Preferences------------------------------------*/
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        ListPreference(screen.context).apply {
-            key = PREF_SERVER_KEY
-            title = "Preferred server"
-            entries = SERVER_LIST
-            entryValues = SERVER_LIST
-            setDefaultValue(PREF_SERVER_DEFAULT)
-            summary = "%s"
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }.also(screen::addPreference)
+        screen.addListPreference(
+            key = PREF_SERVER_KEY,
+            title = "Preferred server",
+            entries = SERVER_LIST,
+            entryValues = SERVER_LIST,
+            default = PREF_SERVER_DEFAULT,
+            summary = "%s",
+        )
+        screen.addListPreference(
+            key = PREF_QUALITY_KEY,
+            title = "Preferred quality",
+            entries = QUALITY_LIST,
+            entryValues = QUALITY_LIST,
+            default = PREF_QUALITY_DEFAULT,
+            summary = "%s",
+        )
+    }
 
-        ListPreference(screen.context).apply {
-            key = PREF_QUALITY_KEY
-            title = "Preferred quality"
-            entries = QUALITY_LIST
-            entryValues = QUALITY_LIST
-            setDefaultValue(PREF_QUALITY_DEFAULT)
-            summary = "%s"
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
+    private fun Document.toAnimesPage(): AnimesPage = AnimesPage(
+        select(ANIME_SELECTOR).map(::animeFromElement),
+        selectFirst(NEXT_PAGE_SELECTOR) != null,
+    )
+
+    private fun animeFromElement(element: Element): SAnime = SAnime.create().apply {
+        setUrlWithoutDomain(element.selectFirst("div.Description a.Button")!!.absUrl("href"))
+        title = element.selectFirst("a h3")!!.text()
+        thumbnail_url = element.selectFirst("a div.Image figure img")?.absUrl("src")
+        description = element.selectFirst("div.Description p:eq(2)")?.text()?.removeSurrounding("\"")
+    }
+
+    private fun parseDetails(document: Document, anime: SAnime): SAnime = anime.apply {
+        title = document.selectFirst("div.Ficha.fchlt div.Container .Title")!!.text()
+        thumbnail_url = document.selectFirst("div.AnimeCover div.Image figure img")?.absUrl("src")
+        description = document.selectFirst("div.Description")?.text()?.removeSurrounding("\"")
+        genre = document.select("nav.Nvgnrs a").joinToString { it.text() }
+        status = parseStatus(document.select("span.fa-tv").text())
+        initialized = true
+    }
+
+    private fun parseEpisodes(document: Document): List<SEpisode> {
+        val script = document.selectFirst("script:containsData(var episodes =)")?.data()
+            ?: return emptyList()
+
+        val animeInfo = script.jsArray("anime_info") ?: return emptyList()
+        val animeId = animeInfo[0]!!.string
+        val animeSlug = animeInfo[2]!!.string
+        val episodes = script.jsArray("episodes") ?: return emptyList()
+
+        return episodes.map { entry ->
+            val number = entry[0]!!.string
+            SEpisode.create().apply {
+                url = "/anime/$animeId/$animeSlug/episodio-$number"
+                name = "Episodio $number"
+                episode_number = number.toFloatOrNull() ?: 0F
+                date_upload = dateFormat.tryParse(entry[1]?.stringOrNull)
             }
-        }.also(screen::addPreference)
+        }.sortedByDescending { it.episode_number }
+    }
+
+    private fun parseStatus(statusString: String): Int {
+        val status = statusString.lowercase()
+        return when {
+            "emisi" in status -> SAnime.ONGOING
+            "finalizado" in status -> SAnime.COMPLETED
+            else -> SAnime.UNKNOWN
+        }
+    }
+
+    // The arrays mix numbers and strings, so they are read with the JsonElement accessors
+    private fun String.jsArray(variable: String): JsonArray? {
+        val raw = substringAfter("var $variable = [", "").substringBefore("];", "")
+        return if (raw.isEmpty()) null else "[$raw]".parseAs<JsonArray>()
+    }
+
+    private fun serverLabel(url: String): String = when {
+        "streamtape" in url -> "StreamTape"
+        "ok.ru" in url -> "Okru"
+        "yourupload" in url -> "YourUpload"
+        "streamwish" in url || "playerwish" in url || "bysezoxexe" in url -> "StreamWish"
+        "vidhide" in url || "streamhidevid" in url -> "VidHide"
+        "voe" in url -> "Voe"
+        "uqload" in url -> "Uqload"
+        "mp4upload" in url -> "Mp4upload"
+        else -> url.toHttpUrlOrNull()?.host ?: url
+    }
+
+    companion object {
+        private const val ANIME_SELECTOR = "div.Container ul.ListAnimes li article"
+        private const val NEXT_PAGE_SELECTOR = """ul.pagination li a[rel="next"]"""
+
+        private const val PREF_QUALITY_KEY = "preferred_quality"
+        private const val PREF_QUALITY_DEFAULT = "720"
+        private val QUALITY_LIST = listOf("1080", "720", "480", "360")
+
+        private const val PREF_SERVER_KEY = "preferred_server"
+        private const val PREF_SERVER_DEFAULT = "StreamWish"
+        private val SERVER_LIST = listOf(
+            "StreamWish", "YourUpload", "Okru", "StreamTape",
+            "VidHide", "Voe", "Uqload", "Mp4upload",
+        )
+
+        // video1 = '…', video2 = "…", video10 = '…'
+        private val VIDEO_REGEX = Regex("""video\d+\s*=\s*['"]([^'"]+)['"]""")
+        private val RESOLUTION_REGEX = Regex("""(\d{3,4})p""")
     }
 }
