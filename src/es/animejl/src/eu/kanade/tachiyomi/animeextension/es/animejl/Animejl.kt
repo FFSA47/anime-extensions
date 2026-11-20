@@ -67,19 +67,19 @@ abstract class Animejl :
         client.get("$baseUrl/animes?order=updated&page=$page").use { it.asJsoup().toAnimesPage() }
 
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        val params = Filters.getSearchParameters(filters)
+        val params = Filters.getQueryParameters(filters)
         val url = baseUrl.toHttpUrl().newBuilder().addPathSegment("animes")
 
         when {
             query.isNotBlank() -> url.addQueryParameter("q", query)
-            params.filter.isNotEmpty() -> url.encodedQuery(params.getQuery().removePrefix("?"))
+            params.isNotEmpty() -> params.forEach { (name, value) -> url.addQueryParameter(name, value) }
             else -> url.addQueryParameter("order", "rating")
         }
 
         return client.get(url.addQueryParameter("page", page.toString()).build())
             .use { it.asJsoup().toAnimesPage() }
     }
-
+    
     override fun getFilterList(): AnimeFilterList = Filters.FILTER_LIST
 
     // Details and episodes share the same page, so it is fetched only once
