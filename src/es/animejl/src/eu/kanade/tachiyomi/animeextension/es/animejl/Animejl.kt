@@ -117,11 +117,11 @@ abstract class Animejl : AnimeHttpSource(), ConfigurableAnimeSource {
         else -> SAnime.UNKNOWN
     }
 
-    /*--------------------------------Seasons------------------------------------*/
+    /*--------------------------------Seasons (lib16)----------------------------*/
+    // AnimeJL no separa por temporadas.
     override fun seasonListParse(response: Response): List<SAnime> = emptyList()
 
     /*--------------------------------Episodes-----------------------------------*/
-    // ✅ Esta implementación es la que usará getAnimeEpisodeUpdate por defecto.
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()
         val episodeList = mutableListOf<SEpisode>()
@@ -147,11 +147,8 @@ abstract class Animejl : AnimeHttpSource(), ConfigurableAnimeSource {
         return episodeList.sortedByDescending { it.episode_number }
     }
 
-    /* ⛔️ getAnimeEpisodeUpdate ELIMINADO: la implementación base de lib16
-       llamará a episodeListParse cuando sea necesario. */
-
-    /*--------------------------------Hosters------------------------------------*/
-    // ✅ Hoster con hosterUrl para que el host realice la petición de video.
+    /*--------------------------------Hosters (lib16)----------------------------*/
+    // ✅ Hoster con hosterUrl válida para que el host realice la petición de video.
     override fun hosterListParse(response: Response): List<Hoster> {
         val episodeUrl = response.request.url.toString()
         return listOf(
@@ -173,26 +170,40 @@ abstract class Animejl : AnimeHttpSource(), ConfigurableAnimeSource {
     private val uqloadExtractor by lazy { UqloadExtractor(client) }
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
 
+    // ✅ Firma de lib16: recibe el Hoster seleccionado
     override fun videoListParse(response: Response, hoster: Hoster): List<Video> {
         val document = response.asJsoup()
         val scriptContent = document.selectFirst("script:containsData(var video = [)")?.data()
             ?: return emptyList()
         val videoPattern = Regex("""video\[\d+] = '([^']+)'""")
         return videoPattern.findAll(scriptContent).toList().catchingFlatMapBlocking { match ->
-            val url = match.groupValues[1]
+            val rawValue = match.groupValues[1]
+
+            // El sitio envuelve cada video en <iframe src="…">; extraer la URL real
+            val url = if (rawValue.trimStart().startsWith("<iframe", ignoreCase = true)) {
+                Regex("""src=["']([^"']+)["']""").find(rawValue)?.groupValues?.get(1)
+                    ?: return@catchingFlatMapBlocking emptyList<Video>()
+            } else {
+                rawValue
+            }
+
+            if (url.isBlank()) return@catchingFlatMapBlocking emptyList<Video>()
+
             when {
                 url.contains("streamtape") -> listOfNotNull(streamTapeExtractor.videoFromUrl(url))
                 url.contains("ok.ru") -> okruExtractor.videosFromUrl(url)
                 url.contains("yourupload") -> yourUploadExtractor.videoFromUrl(url, headers)
-                url.contains("streamwish") || url.contains("playerwish") ->
-                    streamWishExtractor.videosFromUrl(url)
-                url.contains("streamhidevid") -> vidHideExtractor.videosFromUrl(url)
+                url.contains("streamwish") ||
+                    url.contains("playerwish") ||
+                    url.contains("bysezoxexe") -> streamWishExtractor.videosFromUrl(url)
+                url.contains("streamhidevid") || url.contains("vidhide") ->
+                    vidHideExtractor.videosFromUrl(url)
                 url.contains("voe") -> voeExtractor.videosFromUrl(url)
                 url.contains("uqload") -> uqloadExtractor.videosFromUrl(url)
                 url.contains("mp4upload") -> mp4uploadExtractor.videosFromUrl(url, headers)
                 else -> universalExtractor.videosFromUrl(url, headers)
             }
-        }
+        }.distinctBy { it.videoUrl }
     }
 
     /*--------------------------------Filters------------------------------------*/
