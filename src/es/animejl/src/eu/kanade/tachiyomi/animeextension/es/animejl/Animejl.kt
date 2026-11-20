@@ -61,10 +61,12 @@ abstract class Animejl :
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
 
     override suspend fun getPopularAnime(page: Int): AnimesPage =
-        client.get("$baseUrl/animes?order=rating&page=$page").use { it.asJsoup().toAnimesPage() }
+        client.get("$baseUrl/animes?order=rating&page=$page", headers)
+            .use { it.asJsoup().toAnimesPage() }
 
     override suspend fun getLatestUpdates(page: Int): AnimesPage =
-        client.get("$baseUrl/animes?order=updated&page=$page").use { it.asJsoup().toAnimesPage() }
+        client.get("$baseUrl/animes?order=updated&page=$page", headers)
+            .use { it.asJsoup().toAnimesPage() }
 
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
         val params = Filters.getQueryParameters(filters)
@@ -76,12 +78,12 @@ abstract class Animejl :
             else -> url.addQueryParameter("order", "rating")
         }
 
-        return client.get(url.addQueryParameter("page", page.toString()).build())
+        return client.get(url.addQueryParameter("page", page.toString()).build(), headers)
             .use { it.asJsoup().toAnimesPage() }
     }
-    
-    override fun getFilterList(): AnimeFilterList = Filters.FILTER_LIST
 
+    override fun getFilterList(): AnimeFilterList = Filters.FILTER_LIST
+    
     // Details and episodes share the same page, so it is fetched only once
     override suspend fun fetchAnimeUpdate(
         anime: SAnime,
@@ -91,7 +93,7 @@ abstract class Animejl :
     ): SAnimeUpdate {
         if (!fetchDetails && !fetchEpisodes) return SAnimeUpdate(anime = anime, episodes = episodes)
 
-        val document = client.get("$baseUrl${anime.url}").use { it.asJsoup() }
+        val document = client.get("$baseUrl${anime.url}", headers).use { it.asJsoup() }
         return SAnimeUpdate(
             anime = if (fetchDetails) parseDetails(document, anime) else anime,
             episodes = if (fetchEpisodes) parseEpisodes(document) else episodes,
@@ -99,7 +101,7 @@ abstract class Animejl :
     }
 
     override suspend fun fetchHosterList(episode: SEpisode): List<Hoster> {
-        val script = client.get("$baseUrl${episode.url}").use { it.asJsoup() }
+        val script = client.get("$baseUrl${episode.url}", headers).use { it.asJsoup() }
             .selectFirst("script:containsData(var video =)")?.data()
             ?: return emptyList()
 
