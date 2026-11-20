@@ -101,7 +101,7 @@ abstract class Animejl :
                 episode_number = episodeNumber.toFloat()
                 name = "Episodio $episodeNumber"
             }
-        }.sortedByDescending { it.episode_number }
+        }.toList().sortedByDescending { it.episode_number } // <-- .toList() arregla el error
     }
 
     // -------------------------------- Video List --------------------------------
@@ -180,8 +180,7 @@ abstract class Animejl :
 
     override fun animeDetailsParse(document: Document): SAnime {
         val anime = SAnime.create()
-        anime.thumbnail_url =
-            document.selectFirst("div.AnimeCover div.Image figure img")!!.attr("abs:src")
+        anime.thumbnail_url = document.selectFirst("div.AnimeCover div.Image figure img")!!.attr("abs:src")
         anime.title = document.selectFirst("div.Ficha.fchlt div.Container .Title")!!.text()
         anime.description = document.selectFirst("div.Description")?.text()?.removeSurrounding("\"")
         anime.genre = document.select("nav.Nvgnrs a").joinToString { it.text() }.takeIf { it.isNotEmpty() }
