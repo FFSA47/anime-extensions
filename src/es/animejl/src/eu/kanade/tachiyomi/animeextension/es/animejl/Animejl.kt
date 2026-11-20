@@ -155,6 +155,7 @@ abstract class Animejl : AnimeHttpSource(), ConfigurableAnimeSource {
             Hoster(
                 hosterUrl = episodeUrl,
                 hosterName = "AnimeJL",
+                lazy = true,
             ),
         )
     }
