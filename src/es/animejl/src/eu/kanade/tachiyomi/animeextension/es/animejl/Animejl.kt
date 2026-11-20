@@ -85,6 +85,7 @@ abstract class Animejl :
     override fun getFilterList(): AnimeFilterList = Filters.FILTER_LIST
     
     // Details and episodes share the same page, so it is fetched only once
+    // Details and episodes share the same page, so it is fetched only once
     override suspend fun fetchAnimeUpdate(
         anime: SAnime,
         episodes: List<SEpisode>,
@@ -96,33 +97,51 @@ abstract class Animejl :
         val document = client.get("$baseUrl${anime.url}", headers).use { it.asJsoup() }
         return SAnimeUpdate(
             anime = if (fetchDetails) parseDetails(document, anime) else anime,
-            episodes = if (fetchEpisodes) parseEpisodes(document) else episodes,
+            episodes = if (fetchEpisodes) parseEpisodes(document, anime) else episodes,
         )
     }
 
-    override suspend fun fetchHosterList(episode: SEpisode): List<Hoster> {
-        val script = client.get("$baseUrl${episode.url}", headers).use { it.asJsoup() }
-            .selectFirst("script:containsData(var video =)")?.data()
+    private fun parseEpisodes(document: Document, anime: SAnime): List<SEpisode> {
+        val script = document.selectFirst("script:containsData(var episodes =)")?.data()
             ?: return emptyList()
+        val episodes = script.jsArray("episodes") ?: return emptyList()
+        val animePath = anime.url.trimEnd('/')
 
-        return VIDEO_REGEX.findAll(script).mapNotNull { match ->
-            val raw = match.groupValues[1].trim()
-            // Each server is wrapped in an <iframe src="…">
-            val url = if (raw.startsWith("<iframe", ignoreCase = true)) {
-                Jsoup.parseBodyFragment(raw, baseUrl).selectFirst("iframe")?.absUrl("src")
-            } else {
-                raw
+        return episodes.map { entry ->
+            val number = entry[0]!!.string
+            SEpisode.create().apply {
+                url = "$animePath/episodio-$number"
+                name = "Episodio $number"
+                episode_number = number.toFloatOrNull() ?: 0F
+                date_upload = dateFormat.tryParse(entry[1]?.stringOrNull)
             }
-            when {
-                url.isNullOrEmpty() -> null
-                url.startsWith("//") -> "https:$url"
-                else -> url
-            }
-        }.distinct().map { url ->
-            Hoster(hosterUrl = url, hosterName = serverLabel(url))
-        }.toList()
+        }.sortedByDescending { it.episode_number }
     }
+    
+    override suspend fun fetchHosterList(episode: SEpisode): List<Hoster> {
+        val document = client.get("$baseUrl${episode.url}", headers).use { it.asJsoup() }
 
+        return document.select("script").asSequence()
+            .flatMap { VIDEO_REGEX.findAll(it.data()) }
+            .mapNotNull { match ->
+                val raw = match.groupValues[2].trim()
+                // Each server is wrapped in an <iframe src="…">
+                val url = if (raw.contains("<iframe", ignoreCase = true)) {
+                    Jsoup.parseBodyFragment(raw, baseUrl).selectFirst("iframe")?.absUrl("src")
+                } else {
+                    raw
+                }
+                when {
+                    url.isNullOrEmpty() -> null
+                    url.startsWith("//") -> "https:$url"
+                    else -> url
+                }
+            }
+            .distinct()
+            .map { url -> Hoster(hosterUrl = url, hosterName = serverLabel(url)) }
+            .toList()
+    }
+    
     override suspend fun fetchVideoList(hoster: Hoster): List<Video> {
         val url = hoster.hosterUrl
         return when (hoster.hosterName) {
@@ -216,7 +235,8 @@ abstract class Animejl :
     private fun parseStatus(statusString: String): Int {
         val status = statusString.lowercase()
         return when {
-            "emisi" in status -> SAnime.ONGOING
+            "emis" in status -> SAnime.ONGOING
+            "estreno" in status -> SAnime.ONGOING
             "finalizado" in status -> SAnime.COMPLETED
             else -> SAnime.UNKNOWN
         }
@@ -224,7 +244,11 @@ abstract class Animejl :
 
     // The arrays mix numbers and strings, so they are read with the JsonElement accessors
     private fun String.jsArray(variable: String): JsonArray? {
-        val raw = substringAfter("var $variable = [", "").substringBefore("];", "")
+        val raw = substringAfter("var $variable = [", "")
+            .substringBefore("];", "")
+            .replace(TRAILING_COMMA_REGEX, "$1")
+            .trim()
+            .removeSuffix(",")
         return if (raw.isEmpty()) null else "[$raw]".parseAs<JsonArray>()
     }
 
@@ -255,8 +279,11 @@ abstract class Animejl :
             "VidHide", "Voe", "Uqload", "Mp4upload",
         )
 
-        // video1 = '…', video2 = "…", video10 = '…'
-        private val VIDEO_REGEX = Regex("""video\d+\s*=\s*['"]([^'"]+)['"]""")
+        // video1 = '…' / video[1] = "<iframe src='…'>" — same quote at both ends
+        private val VIDEO_REGEX = Regex("""video\[?\d+\]?\s*=\s*(['"])(.*?)\1""", RegexOption.DOT_MATCHES_ALL)
         private val RESOLUTION_REGEX = Regex("""(\d{3,4})p""")
+
+        // The site writes JS arrays with a trailing comma before the closing bracket
+        private val TRAILING_COMMA_REGEX = Regex(""",\s*([\]}])""")
     }
 }
