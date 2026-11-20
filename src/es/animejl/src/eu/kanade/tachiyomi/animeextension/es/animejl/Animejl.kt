@@ -144,7 +144,7 @@ abstract class Animejl :
     
     override suspend fun fetchVideoList(hoster: Hoster): List<Video> {
         val url = hoster.hosterUrl
-        return when (hoster.hosterName) {
+        return when (serverLabel(url)) {
             "StreamTape" -> listOfNotNull(streamTapeExtractor.videoFromUrl(url))
             "Okru" -> okruExtractor.videosFromUrl(url)
             "YourUpload" -> yourUploadExtractor.videoFromUrl(url, headers)
@@ -156,7 +156,7 @@ abstract class Animejl :
             else -> universalExtractor.videosFromUrl(url, headers)
         }.distinctBy { it.videoUrl }
     }
-
+    
     override fun List<Hoster>.sortHosters(): List<Hoster> {
         val server = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)!!
         return sortedByDescending { it.hosterName == server }
