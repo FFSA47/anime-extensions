@@ -66,15 +66,13 @@ abstract class Animejl :
 
     // ============================== Popular ===============================
 
-    override suspend fun getPopularAnime(page: Int): AnimesPage =
-        client.get("$baseUrl/animes?order=rating&page=$page", headers)
-            .use { it.asJsoup().toAnimesPage() }
+    override suspend fun getPopularAnime(page: Int): AnimesPage = client.get("$baseUrl/animes?order=rating&page=$page", headers)
+        .use { it.asJsoup().toAnimesPage() }
 
     // =============================== Latest ===============================
 
-    override suspend fun getLatestUpdates(page: Int): AnimesPage =
-        client.get("$baseUrl/animes?order=updated&page=$page", headers)
-            .use { it.asJsoup().toAnimesPage() }
+    override suspend fun getLatestUpdates(page: Int): AnimesPage = client.get("$baseUrl/animes?order=updated&page=$page", headers)
+        .use { it.asJsoup().toAnimesPage() }
 
     // =============================== Search ===============================
 

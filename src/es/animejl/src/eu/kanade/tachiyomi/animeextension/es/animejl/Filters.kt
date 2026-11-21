@@ -29,16 +29,13 @@ object Filters {
         private val vals: Array<Pair<String, String>>,
         state: Int = 0,
     ) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray(), state) {
-        fun toQueryParam(name: String): Pair<String, String>? =
-            vals[state].second.takeIf { it.isNotEmpty() }?.let { name to it }
+        fun toQueryParam(name: String): Pair<String, String>? = vals[state].second.takeIf { it.isNotEmpty() }?.let { name to it }
     }
 
     class CheckBoxVal(name: String, val value: String) : AnimeFilter.CheckBox(name)
 
-    open class CheckBoxFilterList(name: String, values: List<CheckBoxVal>) :
-        AnimeFilter.Group<CheckBoxVal>(name, values) {
-        fun toQueryParams(name: String): List<Pair<String, String>> =
-            state.filter { checkbox -> checkbox.state }.map { "$name[]" to it.value }
+    open class CheckBoxFilterList(name: String, values: List<CheckBoxVal>) : AnimeFilter.Group<CheckBoxVal>(name, values) {
+        fun toQueryParams(name: String): List<Pair<String, String>> = state.filter { checkbox -> checkbox.state }.map { "$name[]" to it.value }
     }
 
     class GenresFilter : CheckBoxFilterList("Género", FilterData.GENRES.map { CheckBoxVal(it.first, it.second) })
@@ -50,11 +47,12 @@ object Filters {
     class StateFilter : CheckBoxFilterList("Estado", FilterData.STATE.map { CheckBoxVal(it.first, it.second) })
 
     // Matches the popular listing, which is ordered by rating
-    class SortFilter : QueryPartFilter(
-        "Orden",
-        FilterData.SORT,
-        FilterData.SORT.indexOfFirst { it.second == "rating" },
-    )
+    class SortFilter :
+        QueryPartFilter(
+            "Orden",
+            FilterData.SORT,
+            FilterData.SORT.indexOfFirst { it.second == "rating" },
+        )
 
     private object FilterData {
         val YEARS = (Calendar.getInstance().get(Calendar.YEAR) downTo 1970)
