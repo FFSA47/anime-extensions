@@ -25,5 +25,7 @@ dependencies {
     implementation(project(":lib:vidhideextractor"))
     implementation(project(":lib:universalextractor"))
     implementation(project(":lib:uqloadextractor"))
+    implementation(project(":lib:burstcloudextractor"))
+    implementation(project(":lib:filemoonextractor"))
     implementation(project(":lib:mp4uploadextractor"))
 }
