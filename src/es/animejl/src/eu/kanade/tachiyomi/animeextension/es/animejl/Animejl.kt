@@ -1,6 +1,8 @@
 package eu.kanade.tachiyomi.animeextension.es.animejl
 
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.burstcloudextractor.BurstCloudExtractor
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
 import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import aniyomi.lib.okruextractor.OkruExtractor
 import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
@@ -59,6 +61,8 @@ abstract class Animejl :
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
     private val uqloadExtractor by lazy { UqloadExtractor(client) }
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
+    private val filemoonExtractor by lazy { FilemoonExtractor(client) }
+    private val burstCloudExtractor by lazy { BurstCloudExtractor(client) }
 
     override suspend fun getPopularAnime(page: Int): AnimesPage =
         client.get("$baseUrl/animes?order=rating&page=$page", headers)
@@ -145,11 +149,13 @@ abstract class Animejl :
     override suspend fun fetchVideoList(hoster: Hoster): List<Video> {
         val url = hoster.hosterUrl
         return when (serverLabel(url)) {
+            "FileMoon" -> filemoonExtractor.videosFromUrl(url, headers = headers)
+            "VidHide" -> vidHideExtractor.videosFromUrl(url)
+            "BurstCloud" -> burstCloudExtractor.videoFromUrl(url, headers)
+            "StreamWish" -> streamWishExtractor.videosFromUrl(url)
             "StreamTape" -> listOfNotNull(streamTapeExtractor.videoFromUrl(url))
             "Okru" -> okruExtractor.videosFromUrl(url)
             "YourUpload" -> yourUploadExtractor.videoFromUrl(url, headers)
-            "StreamWish" -> streamWishExtractor.videosFromUrl(url)
-            "VidHide" -> vidHideExtractor.videosFromUrl(url)
             "Voe" -> voeExtractor.videosFromUrl(url)
             "Uqload" -> uqloadExtractor.videosFromUrl(url)
             "Mp4upload" -> mp4uploadExtractor.videosFromUrl(url, headers)
@@ -253,11 +259,14 @@ abstract class Animejl :
     }
 
     private fun serverLabel(url: String): String = when {
+        "byse" in url || "filemoon" in url -> "FileMoon"
+        "vidhide" in url || "streamhide" in url || "dhtpre" in url ||
+            "morencius" in url || "hgcloud" in url -> "VidHide"
+        "burstcloud" in url -> "BurstCloud"
         "streamtape" in url -> "StreamTape"
         "ok.ru" in url -> "Okru"
         "yourupload" in url -> "YourUpload"
-        "streamwish" in url || "playerwish" in url || "bysezoxexe" in url -> "StreamWish"
-        "vidhide" in url || "streamhidevid" in url -> "VidHide"
+        "streamwish" in url || "playerwish" in url -> "StreamWish"
         "voe" in url -> "Voe"
         "uqload" in url -> "Uqload"
         "mp4upload" in url -> "Mp4upload"
@@ -273,10 +282,10 @@ abstract class Animejl :
         private val QUALITY_LIST = listOf("1080", "720", "480", "360")
 
         private const val PREF_SERVER_KEY = "preferred_server"
-        private const val PREF_SERVER_DEFAULT = "StreamWish"
+        private const val PREF_SERVER_DEFAULT = "FileMoon"
         private val SERVER_LIST = listOf(
-            "StreamWish", "YourUpload", "Okru", "StreamTape",
-            "VidHide", "Voe", "Uqload", "Mp4upload",
+            "FileMoon", "VidHide", "Voe", "YourUpload", "Mp4upload",
+            "Okru", "BurstCloud", "StreamWish", "StreamTape", "Uqload",
         )
 
         // video1 = '…' / video[1] = "<iframe src='…'>" — same quote at both ends
