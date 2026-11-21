@@ -41,6 +41,7 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 
 @Source
+@OptIn(keiyoushi.annotation.AnimiruOnly::class)
 abstract class Animejl :
     AniSource(),
     ConfigurableAnimeSource {
