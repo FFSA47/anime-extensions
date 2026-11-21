@@ -41,7 +41,6 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 
 @Source
-@OptIn(keiyoushi.annotation.AnimiruOnly::class)
 abstract class Animejl :
     AniSource(),
     ConfigurableAnimeSource {
@@ -52,25 +51,31 @@ abstract class Animejl :
 
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT)
 
+    private val filemoonExtractor by lazy { FilemoonExtractor(client) }
+    private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
+    private val streamWishExtractor by lazy { StreamWishExtractor(client, headers) }
     private val streamTapeExtractor by lazy { StreamTapeExtractor(client) }
     private val okruExtractor by lazy { OkruExtractor(client) }
     private val yourUploadExtractor by lazy { YourUploadExtractor(client) }
-    private val streamWishExtractor by lazy { StreamWishExtractor(client, headers) }
-    private val universalExtractor by lazy { UniversalExtractor(client) }
-    private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
     private val uqloadExtractor by lazy { UqloadExtractor(client) }
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
-    private val filemoonExtractor by lazy { FilemoonExtractor(client) }
     private val burstCloudExtractor by lazy { BurstCloudExtractor(client) }
+    private val universalExtractor by lazy { UniversalExtractor(client) }
+
+    // ============================== Popular ===============================
 
     override suspend fun getPopularAnime(page: Int): AnimesPage =
         client.get("$baseUrl/animes?order=rating&page=$page", headers)
             .use { it.asJsoup().toAnimesPage() }
 
+    // =============================== Latest ===============================
+
     override suspend fun getLatestUpdates(page: Int): AnimesPage =
         client.get("$baseUrl/animes?order=updated&page=$page", headers)
             .use { it.asJsoup().toAnimesPage() }
+
+    // =============================== Search ===============================
 
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
         val params = Filters.getQueryParameters(filters)
@@ -86,9 +91,8 @@ abstract class Animejl :
             .use { it.asJsoup().toAnimesPage() }
     }
 
-    override fun getFilterList(): AnimeFilterList = Filters.FILTER_LIST
-    
-    // Details and episodes share the same page, so it is fetched only once
+    // =========================== Anime Details ============================
+
     // Details and episodes share the same page, so it is fetched only once
     override suspend fun fetchAnimeUpdate(
         anime: SAnime,
@@ -105,6 +109,18 @@ abstract class Animejl :
         )
     }
 
+    private fun parseDetails(document: Document, anime: SAnime): SAnime = anime.apply {
+        title = document.selectFirst("div.Ficha.fchlt div.Container .Title")!!.text()
+        thumbnail_url = document.selectFirst("div.AnimeCover div.Image figure img")?.absUrl("src")
+        description = document.selectFirst("div.Description")?.text()?.removeSurrounding("\"")
+        genre = document.select("nav.Nvgnrs a").joinToString { it.text() }
+        status = parseStatus(document.select("span.fa-tv").text())
+        initialized = true
+    }
+
+    // ============================== Episodes ==============================
+
+    // anime.url already carries the canonical id and slug
     private fun parseEpisodes(document: Document, anime: SAnime): List<SEpisode> {
         val script = document.selectFirst("script:containsData(var episodes =)")?.data()
             ?: return emptyList()
@@ -121,31 +137,28 @@ abstract class Animejl :
             }
         }.sortedByDescending { it.episode_number }
     }
-    
+
+    // ============================== Hosters ===============================
+
     override suspend fun fetchHosterList(episode: SEpisode): List<Hoster> {
         val document = client.get("$baseUrl${episode.url}", headers).use { it.asJsoup() }
 
         return document.select("script").asSequence()
             .flatMap { VIDEO_REGEX.findAll(it.data()) }
-            .mapNotNull { match ->
-                val raw = match.groupValues[2].trim()
-                // Each server is wrapped in an <iframe src="…">
-                val url = if (raw.contains("<iframe", ignoreCase = true)) {
-                    Jsoup.parseBodyFragment(raw, baseUrl).selectFirst("iframe")?.absUrl("src")
-                } else {
-                    raw
-                }
-                when {
-                    url.isNullOrEmpty() -> null
-                    url.startsWith("//") -> "https:$url"
-                    else -> url
-                }
-            }
+            .mapNotNull { match -> embedUrl(match.groupValues[2].trim()) }
             .distinct()
             .map { url -> Hoster(hosterUrl = url, hosterName = serverLabel(url)) }
             .toList()
     }
-    
+
+    override fun List<Hoster>.sortHosters(): List<Hoster> {
+        val server = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)!!
+        return sortedByDescending { it.hosterName == server }
+    }
+
+    // =============================== Videos ===============================
+
+    // Dispatch by url so hosterName stays purely cosmetic
     override suspend fun fetchVideoList(hoster: Hoster): List<Video> {
         val url = hoster.hosterUrl
         return when (serverLabel(url)) {
@@ -162,11 +175,6 @@ abstract class Animejl :
             else -> universalExtractor.videosFromUrl(url, headers)
         }.distinctBy { it.videoUrl }
     }
-    
-    override fun List<Hoster>.sortHosters(): List<Hoster> {
-        val server = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)!!
-        return sortedByDescending { it.hosterName == server }
-    }
 
     override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
@@ -177,6 +185,12 @@ abstract class Animejl :
             ),
         ).reversed()
     }
+
+    // =============================== Filters ==============================
+
+    override fun getFilterList(): AnimeFilterList = Filters.FILTER_LIST
+
+    // ============================== Settings ==============================
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         screen.addListPreference(
@@ -197,6 +211,8 @@ abstract class Animejl :
         )
     }
 
+    // ============================== Utilities =============================
+
     private fun Document.toAnimesPage(): AnimesPage = AnimesPage(
         select(ANIME_SELECTOR).map(::animeFromElement),
         selectFirst(NEXT_PAGE_SELECTOR) != null,
@@ -209,35 +225,6 @@ abstract class Animejl :
         description = element.selectFirst("div.Description p:eq(2)")?.text()?.removeSurrounding("\"")
     }
 
-    private fun parseDetails(document: Document, anime: SAnime): SAnime = anime.apply {
-        title = document.selectFirst("div.Ficha.fchlt div.Container .Title")!!.text()
-        thumbnail_url = document.selectFirst("div.AnimeCover div.Image figure img")?.absUrl("src")
-        description = document.selectFirst("div.Description")?.text()?.removeSurrounding("\"")
-        genre = document.select("nav.Nvgnrs a").joinToString { it.text() }
-        status = parseStatus(document.select("span.fa-tv").text())
-        initialized = true
-    }
-
-    private fun parseEpisodes(document: Document): List<SEpisode> {
-        val script = document.selectFirst("script:containsData(var episodes =)")?.data()
-            ?: return emptyList()
-
-        val animeInfo = script.jsArray("anime_info") ?: return emptyList()
-        val animeId = animeInfo[0]!!.string
-        val animeSlug = animeInfo[2]!!.string
-        val episodes = script.jsArray("episodes") ?: return emptyList()
-
-        return episodes.map { entry ->
-            val number = entry[0]!!.string
-            SEpisode.create().apply {
-                url = "/anime/$animeId/$animeSlug/episodio-$number"
-                name = "Episodio $number"
-                episode_number = number.toFloatOrNull() ?: 0F
-                date_upload = dateFormat.tryParse(entry[1]?.stringOrNull)
-            }
-        }.sortedByDescending { it.episode_number }
-    }
-
     private fun parseStatus(statusString: String): Int {
         val status = statusString.lowercase()
         return when {
@@ -245,6 +232,20 @@ abstract class Animejl :
             "estreno" in status -> SAnime.ONGOING
             "finalizado" in status -> SAnime.COMPLETED
             else -> SAnime.UNKNOWN
+        }
+    }
+
+    private fun embedUrl(raw: String): String? {
+        // Each server is wrapped in an <iframe src="…">
+        val url = if (raw.contains("<iframe", ignoreCase = true)) {
+            Jsoup.parseBodyFragment(raw, baseUrl).selectFirst("iframe")?.absUrl("src")
+        } else {
+            raw
+        }
+        return when {
+            url.isNullOrEmpty() -> null
+            url.startsWith("//") -> "https:$url"
+            else -> url
         }
     }
 
@@ -277,10 +278,6 @@ abstract class Animejl :
         private const val ANIME_SELECTOR = "div.Container ul.ListAnimes li article"
         private const val NEXT_PAGE_SELECTOR = """ul.pagination li a[rel="next"]"""
 
-        private const val PREF_QUALITY_KEY = "preferred_quality"
-        private const val PREF_QUALITY_DEFAULT = "720"
-        private val QUALITY_LIST = listOf("1080", "720", "480", "360")
-
         private const val PREF_SERVER_KEY = "preferred_server"
         private const val PREF_SERVER_DEFAULT = "FileMoon"
         private val SERVER_LIST = listOf(
@@ -288,11 +285,13 @@ abstract class Animejl :
             "Okru", "BurstCloud", "StreamWish", "StreamTape", "Uqload",
         )
 
-        // video1 = '…' / video[1] = "<iframe src='…'>" — same quote at both ends
+        private const val PREF_QUALITY_KEY = "preferred_quality"
+        private const val PREF_QUALITY_DEFAULT = "720"
+        private val QUALITY_LIST = listOf("1080", "720", "480", "360")
+
+        // video[0] = '<iframe src="…" …></iframe>'
         private val VIDEO_REGEX = Regex("""video\[?\d+\]?\s*=\s*(['"])(.*?)\1""", RegexOption.DOT_MATCHES_ALL)
         private val RESOLUTION_REGEX = Regex("""(\d{3,4})p""")
-
-        // The site writes JS arrays with a trailing comma before the closing bracket
         private val TRAILING_COMMA_REGEX = Regex(""",\s*([\]}])""")
     }
 }
