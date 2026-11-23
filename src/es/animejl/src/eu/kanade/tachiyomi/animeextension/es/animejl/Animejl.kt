@@ -39,7 +39,6 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 
 @Source
-@OptIn(keiyoushi.annotation.AnimiruOnly::class)
 abstract class Animejl :
     AniSource(),
     ConfigurableAnimeSource {
@@ -129,7 +128,7 @@ abstract class Animejl :
                 date_upload = dateFormat.tryParse(row.getOrNull(1)?.stringOrNull)
             }
         }.sortedByDescending { it.episode_number }
-
+        
     override suspend fun fetchHosterList(episode: SEpisode): List<Hoster> {
         val document = client.get("$baseUrl${episode.url}", headers).use { it.asJsoup() }
 
@@ -271,7 +270,6 @@ abstract class Animejl :
         // Labels saved before the lib 16 migration
         private val LEGACY_SERVERS = mapOf(
             "StreamHideVid" to "VidHide",
-            "StreamWish" to "FileMoon",
         )
 
         private const val PREF_QUALITY_KEY = "preferred_quality"
@@ -283,4 +281,4 @@ abstract class Animejl :
         private val RESOLUTION_REGEX = Regex("""(\d{3,4})p""")
         private val TRAILING_COMMA_REGEX = Regex(""",\s*([\]}])""")
     }
-}
+    }
