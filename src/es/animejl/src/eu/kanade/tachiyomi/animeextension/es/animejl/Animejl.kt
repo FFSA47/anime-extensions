@@ -121,14 +121,14 @@ abstract class Animejl :
             val row = entry as? JsonArray ?: return@mapNotNull null
             val number = row.getOrNull(0)?.stringOrNull?.takeIf { it.isNotEmpty() }
                 ?: return@mapNotNull null
+            val episodeNumber = number.toFloatOrNull() ?: return@mapNotNull null
             SEpisode.create().apply {
                 url = "$animePath/episodio-$number"
                 name = "Episodio $number"
-                episode_number = number.toFloatOrNull() ?: 0F
+                episode_number = episodeNumber
                 date_upload = dateFormat.tryParse(row.getOrNull(1)?.stringOrNull)
             }
         }.sortedByDescending { it.episode_number }
-    }
 
     override suspend fun fetchHosterList(episode: SEpisode): List<Hoster> {
         val document = client.get("$baseUrl${episode.url}", headers).use { it.asJsoup() }
