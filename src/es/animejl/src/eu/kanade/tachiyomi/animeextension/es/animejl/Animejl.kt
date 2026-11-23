@@ -128,6 +128,7 @@ abstract class Animejl :
                 date_upload = dateFormat.tryParse(row.getOrNull(1)?.stringOrNull)
             }
         }.sortedByDescending { it.episode_number }
+    }
         
     override suspend fun fetchHosterList(episode: SEpisode): List<Hoster> {
         val document = client.get("$baseUrl${episode.url}", headers).use { it.asJsoup() }
@@ -281,4 +282,4 @@ abstract class Animejl :
         private val RESOLUTION_REGEX = Regex("""(\d{3,4})p""")
         private val TRAILING_COMMA_REGEX = Regex(""",\s*([\]}])""")
     }
-    }
+}
