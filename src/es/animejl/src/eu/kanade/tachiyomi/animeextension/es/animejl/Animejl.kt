@@ -62,13 +62,11 @@ abstract class Animejl :
     private val burstCloudExtractor by lazy { BurstCloudExtractor(client) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
-    override suspend fun getPopularAnime(page: Int): AnimesPage =
-        client.get("$baseUrl/animes?order=rating&page=$page", headers)
-            .use { it.asJsoup().toAnimesPage() }
+    override suspend fun getPopularAnime(page: Int): AnimesPage = client.get("$baseUrl/animes?order=rating&page=$page", headers)
+        .use { it.asJsoup().toAnimesPage() }
 
-    override suspend fun getLatestUpdates(page: Int): AnimesPage =
-        client.get("$baseUrl/animes?order=updated&page=$page", headers)
-            .use { it.asJsoup().toAnimesPage() }
+    override suspend fun getLatestUpdates(page: Int): AnimesPage = client.get("$baseUrl/animes?order=updated&page=$page", headers)
+        .use { it.asJsoup().toAnimesPage() }
 
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
         val params = Filters.getQueryParameters(filters)
@@ -285,4 +283,4 @@ abstract class Animejl :
         private val RESOLUTION_REGEX = Regex("""(\d{3,4})p""")
         private val TRAILING_COMMA_REGEX = Regex(""",\s*([\]}])""")
     }
-    }
+}
