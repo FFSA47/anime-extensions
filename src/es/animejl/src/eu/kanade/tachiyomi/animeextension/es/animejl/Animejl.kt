@@ -129,7 +129,7 @@ abstract class Animejl :
             }
         }.sortedByDescending { it.episode_number }
     }
-        
+
     override suspend fun fetchHosterList(episode: SEpisode): List<Hoster> {
         val document = client.get("$baseUrl${episode.url}", headers).use { it.asJsoup() }
 
