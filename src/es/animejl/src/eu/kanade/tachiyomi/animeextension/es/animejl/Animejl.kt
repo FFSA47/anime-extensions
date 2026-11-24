@@ -120,7 +120,7 @@ abstract class Animejl :
         val episodes = script.jsArray("episodes")
             ?: throw Exception("Could not find the episode list. Check if there are any in WebView.")
         val animePath = animeUrl.trimEnd('/')
-        
+
         return episodes.mapNotNull { entry ->
             val row = entry as? JsonArray ?: return@mapNotNull null
             val number = row.getOrNull(0)?.stringOrNull?.takeIf { it.isNotEmpty() }
@@ -247,7 +247,7 @@ abstract class Animejl :
             .removeSuffix(",")
         return "[$raw]".parseAs<JsonArray>()
     }
-    
+
     private fun serverLabel(url: String): String = when {
         "byse" in url || "filemoon" in url -> "FileMoon"
         "vidhide" in url || "streamhide" in url || "dhtpre" in url ||
