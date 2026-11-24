@@ -241,7 +241,7 @@ abstract class Animejl :
         val marker = "var $variable = ["
         if (!contains(marker)) return null
         val raw = substringAfter(marker)
-        if (!raw.contains("];")) return null  // truncated payload, not empty
+        if (!raw.contains("];")) return null // truncated payload, not empty
         val content = raw.substringBefore("];")
             .replace(TRAILING_COMMA_REGEX, "$1")
             .trim()
